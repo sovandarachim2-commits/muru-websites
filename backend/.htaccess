@@ -1,0 +1,9 @@
+RewriteEngine On
+
+# Private folders stay off the web. Apache still serves public/index.php through the rule below.
+RewriteRule ^(config|src|sql|data|tests)(/|$) - [F,L]
+
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+
+RewriteRule ^ public/index.php [QSA,L]

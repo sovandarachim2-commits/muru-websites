@@ -1,0 +1,305 @@
+import { useEffect, useRef, useState } from "react"
+import ProductArt from "../../components/ProductArt"
+import PhotoPreview from "../../components/PhotoPreview"
+import { IconArrow, IconClose } from "../../components/Icons"
+import { cmsRequest } from "../../data/cms"
+import { translate, useI18n } from "../../data/i18n"
+
+export function ErrorCard({ message, onClose }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const dialog = ref.current
+    if (!dialog) return
+    dialog.showModal()
+    return () => { if (dialog.open) dialog.close() }
+  }, [])
+  if (!message) return null
+  return (
+    <dialog
+      ref={ref}
+      role="alertdialog"
+      aria-labelledby="admin-error-title"
+      aria-describedby="admin-error-message"
+      className="m-auto w-[min(420px,calc(100%_-_32px))] rounded-2xl border border-[#f3d0d4] bg-white p-6 text-[#24252a] shadow-xl backdrop:bg-[#18181b66]"
+      onCancel={(event) => { event.preventDefault(); onClose() }}
+    >
+      <p className="text-xs font-bold tracking-[0.16em] text-[#b72d3c]">ERROR</p>
+      <h2 id="admin-error-title" className="mt-2 text-xl font-semibold">Something went wrong</h2>
+      <p id="admin-error-message" className="mt-3 text-sm leading-6 text-[#50525b]">{message}</p>
+      <button type="button" className="mt-6 inline-flex min-h-[42px] items-center justify-center rounded-md bg-[#d52c63] px-5 text-sm font-semibold text-white" onClick={onClose}>OK</button>
+    </dialog>
+  )
+}
+
+export function newId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID()
+  return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function categoryRecord(item = {}) {
+  const title = typeof item.title === "string" ? item.title : ""
+  return {
+    key: item.key || newId(),
+    originalTitle: typeof item.originalTitle === "string" ? item.originalTitle : title,
+    title,
+    text: typeof item.text === "string" ? item.text : "",
+    image: typeof item.image === "string" ? item.image : "",
+    variant: typeof item.variant === "string" && item.variant ? item.variant : "pump",
+    tone: typeof item.tone === "string" && item.tone ? item.tone : "pink",
+  }
+}
+
+const primary = "min-h-[42px] rounded-md bg-[#d52c63] px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+const fields = "grid min-w-0 gap-4 [&_label]:grid [&_label]:min-w-0 [&_label]:gap-2 [&_label]:text-[13px]"
+
+const imageHints = {
+  products: "Recommended size: 1000 × 1000 px (square). JPG, PNG, or WebP under 2 MB.",
+  categories: "Recommended size: 800 × 800 px (square). JPG, PNG, or WebP under 2 MB.",
+  website: "Recommended size: 1600 × 900 px. JPG, PNG, or WebP under 2 MB.",
+  profiles: "Recommended size: 400 × 400 px (square). JPG, PNG, or WebP under 2 MB.",
+}
+
+export function ImageField({ value = "", onChange, folder = "products", hint }) {
+  const { tx } = useI18n()
+  const [error, setError] = useState("")
+  const [uploading, setUploading] = useState(false)
+  async function upload(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 2097152) {
+      setError("Choose a JPG, PNG or WebP image under 2 MB.")
+    } else {
+      try {
+        setUploading(true)
+        const data = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result)
+          reader.onerror = reject
+          reader.readAsDataURL(file)
+        })
+        const result = await cmsRequest("upload", { image: data, folder }, 60000)
+        onChange(result.url)
+        setError("")
+      } catch (failure) { setError(failure.message || "The image could not be uploaded.") }
+      finally { setUploading(false) }
+    }
+    event.target.value = ""
+  }
+  return <div className={`${fields} mt-4`}>
+    <label>{tx("Photo")}<input type="file" disabled={uploading} accept="image/jpeg,image/png,image/webp" onChange={upload} className="w-full min-w-0 max-w-full text-xs file:mr-2 file:rounded file:border-0 file:bg-[#f1f2f5] file:px-3 file:py-2" /></label>
+    <p className="text-[12px] leading-5 text-[#777a83]">{tx(hint || imageHints[folder] || imageHints.products)}</p>
+    {uploading && <p role="status" className="text-sm">{tx("Uploading...")}</p>}
+    <label>{tx("Image URL")}<input className="min-w-0 max-w-full" value={value.startsWith("data:") ? "" : value} placeholder={value.startsWith("data:") ? "Uploaded photo selected" : "https://..."} onChange={(event) => onChange(event.target.value)} /></label>
+    {value && <button type="button" className="justify-self-start text-[13px] text-[#c5295b]" onClick={() => onChange("")}>{tx("Remove photo")}</button>}
+    {error && <ErrorCard message={error} onClose={() => setError("")} />}
+  </div>
+}
+
+export function CategoryManager({ categories, products, onSave }) {
+  const catalog = Array.isArray(products) ? products : []
+  const [items, setItems] = useState(() => (Array.isArray(categories) ? categories : []).map((item) => categoryRecord(item)))
+  const [editor, setEditor] = useState(null)
+  const [query, setQuery] = useState("")
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [removing, setRemoving] = useState(null)
+  async function persist(next, nextProducts = catalog) {
+    const names = next.map((item) => item.title.trim().toLowerCase())
+    if (!names.length || new Set(names).size !== names.length || names.some((name) => !name || ["all products", "new arrivals"].includes(name))) {
+      setError(names.length ? "Use unique category names. All Products and New Arrivals are reserved." : "Keep at least one category.")
+      return false
+    }
+    setBusy(true)
+    setError("")
+    try {
+      await onSave(next.map(({ title, text, image, variant, tone }) => ({ title: title.trim(), text, image, variant, tone })), nextProducts.map((product) => ({ ...product, category: next.find((item) => item.originalTitle === product.category || item.title.trim() === product.category)?.title.trim() || product.category })))
+      setItems(next.map((item) => ({ ...item, title: item.title.trim(), originalTitle: item.title.trim() })))
+      return true
+    } catch (failure) { setError(failure.message); return false }
+    finally { setBusy(false) }
+  }
+  async function removeCategory() {
+    const fallback = items.find((entry) => entry.key !== removing.key)
+    if (!fallback) { setError("Keep at least one category."); setRemoving(null); return }
+    const next = items.filter((entry) => entry.key !== removing.key)
+    const nextProducts = catalog.map((product) => product.category === removing.originalTitle ? { ...product, category: fallback.title.trim() } : product)
+    if (await persist(next, nextProducts)) setRemoving(null)
+  }
+  async function save(event) {
+    event.preventDefault()
+    const next = items.some((item) => item.key === editor.key) ? items.map((item) => item.key === editor.key ? editor : item) : [...items, editor]
+    if (await persist(next)) setEditor(null)
+  }
+  function move(index, offset) {
+    const next = [...items]
+    ;[next[index], next[index + offset]] = [next[index + offset], next[index]]
+    persist(next)
+  }
+  function edit(item) { setError(""); setEditor({ ...item }) }
+  const visible = items.filter((item) => `${item.title} ${item.text}`.toLowerCase().includes(query.toLowerCase()))
+  const moved = removing ? catalog.filter((product) => product.category === removing.originalTitle).length : 0
+  const fallbackTitle = removing ? items.find((entry) => entry.key !== removing.key)?.title : ""
+  return <section className="max-w-[1100px]">
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Product categories <span className="ml-2 text-sm font-normal text-[#777a83]">{items.length}</span></h2><button type="button" className={primary} disabled={busy || Boolean(editor)} onClick={() => edit(categoryRecord())}>+ Add category</button></div>
+    <div className="mb-4 max-w-[360px]"><input aria-label="Search categories" placeholder="Search categories" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
+    {error && <ErrorCard message={error} onClose={() => setError("")} />}
+    <div className="overflow-hidden rounded-md border border-[#e5e7eb] bg-white">
+      <div className="hidden grid-cols-[36px_minmax(0,1fr)_90px_180px] gap-4 border-b border-[#e5e7eb] bg-[#fafbfc] px-4 py-3 text-xs font-medium text-[#777a83] sm:grid"><span>No</span><span>Category</span><span>Products</span><span className="text-right">Actions</span></div>
+      <ul className="divide-y divide-[#edf0f2]">{visible.map((item, rowIndex) => {
+        const index = items.findIndex((entry) => entry.key === item.key)
+        const count = catalog.filter((product) => product && product.category === item.originalTitle).length
+        return <li key={item.key} className="grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 sm:grid-cols-[36px_minmax(0,1fr)_90px_180px] sm:gap-4">
+          <span className="text-xs text-[#777a83]">{rowIndex + 1}</span>
+          <div className="flex min-w-0 items-center gap-3"><div className="h-14 w-12 shrink-0 overflow-hidden rounded bg-[#fff5f8]"><ProductArt variant={item.variant} tone={item.tone} image={item.image} alt={item.title || "Category"} /></div><div className="min-w-0"><strong className="block break-words text-sm font-semibold">{item.title}</strong><p className="mt-1 truncate text-xs text-[#777a83]">{item.text || "-"}</p><span className="mt-1 block text-xs text-[#777a83] sm:hidden">{count} products</span></div></div>
+          <span className="hidden text-sm text-[#50525b] sm:block">{count}</span>
+          <div className="flex items-center justify-end gap-1">
+            <button type="button" disabled={busy || Boolean(editor) || index === 0 || Boolean(query)} title="Move up" aria-label={`Move ${item.title} up`} className="grid size-8 shrink-0 place-items-center rounded hover:bg-[#f1f2f5]" onClick={() => move(index, -1)}><IconArrow className="size-4 -rotate-90" /></button>
+            <button type="button" disabled={busy || Boolean(editor) || index === items.length - 1 || Boolean(query)} title="Move down" aria-label={`Move ${item.title} down`} className="grid size-8 shrink-0 place-items-center rounded hover:bg-[#f1f2f5]" onClick={() => move(index, 1)}><IconArrow className="size-4 rotate-90" /></button>
+            <button type="button" disabled={busy || Boolean(editor)} className="px-2 py-2 text-xs font-medium text-[#50525b]" onClick={() => edit(item)}>Edit</button>
+            <button type="button" disabled={busy || Boolean(editor)} className="px-2 py-2 text-xs text-[#bf4351]" onClick={() => { setError(""); setRemoving(item) }}>Delete</button>
+          </div>
+        </li>
+      })}</ul>
+      {!visible.length && <p className="px-4 py-10 text-center text-sm text-[#777a83]">{items.length ? "No matching categories." : "No categories yet."}</p>}
+    </div>
+    {removing && <AdminFormDialog title="Delete category?" busy={busy} onClose={() => { if (!busy) setRemoving(null) }}>
+      <p className="text-sm leading-6">{removing.title} will be removed.{moved ? ` ${moved} product${moved === 1 ? "" : "s"} will move to ${fallbackTitle || "another category"}.` : ""}</p>
+      <div className="mt-5 flex justify-end gap-3"><button type="button" disabled={busy} className="rounded-md border border-[#dcdfe4] px-4 py-2 text-sm" onClick={() => setRemoving(null)}>Cancel</button><button type="button" className="rounded-md bg-[#c73542] px-4 py-2 text-sm font-semibold text-white" disabled={busy} onClick={removeCategory}>{busy ? "Deleting..." : "Delete category"}</button></div>
+    </AdminFormDialog>}
+    {editor && <AdminFormDialog title={editor.originalTitle ? "Edit category" : "New category"} busy={busy} onClose={() => { setEditor(null); setError("") }}><form onSubmit={save}>
+      <fieldset disabled={busy} className="grid items-start gap-5 min-[601px]:grid-cols-[140px_minmax(0,1fr)]">
+        <PhotoPreview src={editor.image} alt={editor.title || "Category preview"} className="mx-auto h-40 w-[140px] overflow-hidden rounded-md bg-[#fff5f8]"><ProductArt variant={editor.variant} tone={editor.tone} image={editor.image} alt={editor.title || "Category preview"} /></PhotoPreview>
+        <div className={fields}><label>Name<input autoFocus required maxLength={80} value={editor.title} onChange={(event) => setEditor({ ...editor, title: event.target.value })} /></label><label>Description<input maxLength={600} value={editor.text} onChange={(event) => setEditor({ ...editor, text: event.target.value })} /></label><ImageField folder="categories" value={editor.image} onChange={(image) => setEditor((current) => current ? { ...current, image } : current)} /></div>
+      </fieldset>
+      <div className="mt-5 flex justify-end gap-3"><button type="button" disabled={busy} className="rounded-md border border-[#dcdfe4] px-4 py-2 text-sm" onClick={() => { setEditor(null); setError("") }}>Cancel</button><button className={primary} disabled={busy}>{busy ? "Saving..." : "Save category"}</button></div>
+    </form></AdminFormDialog>}
+  </section>
+}
+
+export function AdminFormDialog({ title, busy, onClose, children }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const dialog = ref.current
+    const previous = document.activeElement
+    dialog.showModal()
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      dialog.close()
+      document.body.style.overflow = overflow
+      previous?.focus()
+    }
+  }, [])
+  return <dialog ref={ref} aria-label={title} className="m-auto max-h-[calc(100svh_-_32px)] w-[min(680px,calc(100%_-_32px))] overflow-auto rounded-lg border border-[#e5e7eb] bg-white p-5 text-[#24252a] shadow-xl backdrop:bg-[#18181b70] sm:p-6" onCancel={(event) => { event.preventDefault(); if (!busy) onClose() }}>
+    <div className="mb-6 flex items-center justify-between gap-4"><h2 className="text-xl font-semibold">{title}</h2><button type="button" disabled={busy} aria-label="Close dialog" title="Close" className="grid size-9 shrink-0 place-items-center rounded hover:bg-[#f1f2f5]" onClick={onClose}><IconClose className="size-5" /></button></div>
+    {children}
+  </dialog>
+}
+
+const sections = [
+  { title: "Brand & appearance", fields: [["brand", "Brand name"], ["tagline", "Footer tagline"]] },
+  { title: "Homepage hero", fields: [["heroEyebrow", "Label"], ["heroTitle", "Headline"], ["heroAccent", "Highlighted headline"], ["heroDescription", "Description", "textarea"], ["heroButton", "Button text"]], image: "heroImage", imageHint: "Recommended size: 1600 × 900 px (wide banner). JPG, PNG, or WebP under 2 MB." },
+  { title: "Product catalog", fields: [["catalogTitle", "Heading"], ["catalogDescription", "Description", "textarea"]] },
+  { title: "Brand story", fields: [["storyTitle", "Heading"], ["storyDescription", "Description", "textarea"]], image: "storyImage", imageHint: "Recommended size: 1200 × 800 px. JPG, PNG, or WebP under 2 MB." },
+  { title: "Promotion", fields: [["promotionTitle", "Heading"], ["promotionDescription", "Description", "textarea"]], image: "promotionImage", imageHint: "Recommended size: 1600 × 800 px (wide banner). JPG, PNG, or WebP under 2 MB." },
+  { title: "Contact section", fields: [["contactTitle", "Heading"], ["contactDescription", "Description", "textarea"]] },
+]
+
+const textKeys = sections.flatMap((item) => item.fields.map(([key]) => key))
+
+function khmerValue(values, key) {
+  if (values.km && Object.prototype.hasOwnProperty.call(values.km, key)) return values.km[key]
+  const auto = translate("km", values[key] || "")
+  return auto === (values[key] || "") ? "" : auto
+}
+
+export function WebsiteEditor({ initial, onSave, canEditWebsite = true, contactForm }) {
+  const [values, setValues] = useState({ ...initial, km: { ...(initial.km || {}) } })
+  const [section, setSection] = useState(canEditWebsite ? 0 : sections.length)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const menu = [...(canEditWebsite ? sections.map((item, index) => ({ ...item, index })) : []), ...(contactForm ? [{ title: "Contact & social links", index: sections.length }] : [])]
+  const current = sections[section]
+  function update(key, value) { setValues({ ...values, [key]: value }) }
+  function updateKhmer(key, value) { setValues({ ...values, km: { ...values.km, [key]: value } }) }
+  async function save(event) {
+    event.preventDefault()
+    setBusy(true)
+    setError("")
+    const km = Object.fromEntries(textKeys.map((key) => [key, khmerValue(values, key)]))
+    try { await onSave({ ...values, km }) } catch (failure) { setError(failure.message) }
+    finally { setBusy(false) }
+  }
+  function englishField(key, label, type) {
+    return <label>{label} (EN){type === "textarea" ? <textarea rows={4} maxLength={2000} value={values[key]} onChange={(event) => update(key, event.target.value)} /> : <input required maxLength={key === "brand" ? 24 : 160} value={values[key]} onChange={(event) => update(key, event.target.value)} />}</label>
+  }
+  return <div className="grid gap-8 min-[761px]:grid-cols-[190px_minmax(0,1fr)]"><div role="tablist" aria-label="Website sections" className="flex gap-2 overflow-auto min-[761px]:flex-col">{menu.map((item) => <button key={item.title} role="tab" aria-selected={item.index === section} className={`shrink-0 rounded-md p-3 text-left text-[13px] ${item.index === section ? "bg-[#fff0f5] font-semibold text-[#b52958]" : ""}`} onClick={() => setSection(item.index)}>{item.title}</button>)}</div>
+    {section === sections.length ? contactForm : <form onSubmit={save} className="max-w-[920px]"><h2 className="mb-6 text-lg font-semibold">{current.title}</h2><fieldset disabled={busy} className={fields}>
+      {current.fields.map(([key, label, type]) => <div key={key} className="grid gap-3 min-[601px]:grid-cols-2">{englishField(key, label, type)}<label>{label} (KH){type === "textarea" ? <textarea rows={4} maxLength={2000} value={khmerValue(values, key)} onChange={(event) => updateKhmer(key, event.target.value)} /> : <input maxLength={2000} value={khmerValue(values, key)} onChange={(event) => updateKhmer(key, event.target.value)} />}</label></div>)}
+      {section === 0 && <><label>Accent color<input type="color" className="h-10 w-16" value={values.accentColor} onChange={(event) => update("accentColor", event.target.value)} /></label><label>Body font<select value={values.bodyFont} onChange={(event) => update("bodyFont", event.target.value)}>{["DM Sans", "Manrope", "system-ui"].map((font) => <option key={font}>{font}</option>)}</select></label><div className="flex flex-wrap gap-4 [&_label]:flex [&_label]:items-center">{[["showPromotion", "Show promotion"], ["showReviews", "Show customer reviews"]].map(([key, label]) => <label key={key}><input type="checkbox" checked={values[key]} onChange={(event) => update(key, event.target.checked)} />{label}</label>)}</div></>}
+      {current.image && <><PhotoPreview src={values[current.image] || "/images/cluster.jpg"} alt={current.title} className="block w-full"><img className="aspect-video w-full rounded-md object-cover" src={values[current.image] || "/images/cluster.jpg"} alt={current.title} /></PhotoPreview><ImageField folder="website" hint={current.imageHint} value={values[current.image]} onChange={(image) => update(current.image, image)} /></>}
+    </fieldset>{error && <ErrorCard message={error} onClose={() => setError("")} />}<button disabled={busy} className={`${primary} mt-5`}>{busy ? "Saving..." : "Save website"}</button></form>}
+  </div>
+}
+
+export function AccountSettings() {
+  const [error, setError] = useState("")
+  const [message, setMessage] = useState("")
+  const [busy, setBusy] = useState(false)
+  async function save(event) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const data = new FormData(form)
+    setError("")
+    setMessage("")
+    if (data.get("password") !== data.get("confirm")) { setError("New passwords do not match."); return }
+    setBusy(true)
+    try { await cmsRequest("password", { currentPassword: data.get("currentPassword"), password: data.get("password") }); form.reset(); setMessage("Password updated.") }
+    catch (failure) { setError(failure.message) }
+    finally { setBusy(false) }
+  }
+  return <form onSubmit={save} className="mt-12 max-w-[600px] border-t border-[#dfe1e6] pt-8"><h2 className="mb-6 text-lg font-semibold">Change password</h2><fieldset disabled={busy} className={fields}><label>Current password<input name="currentPassword" type="password" autoComplete="current-password" required /></label><label>New password<input name="password" type="password" minLength={8} maxLength={256} autoComplete="new-password" required /></label><label>Confirm password<input name="confirm" type="password" minLength={8} maxLength={256} autoComplete="new-password" required /></label></fieldset>{error && <ErrorCard message={error} onClose={() => setError("")} />}{message && <p role="status" className="mt-4 text-green-700">{message}</p>}<button disabled={busy} className={`${primary} mt-5`}>{busy ? "Saving..." : "Update password"}</button></form>
+}
+
+export function ProfileSettings({ session, onSaved }) {
+  const { tx } = useI18n()
+  const [values, setValues] = useState({ name: session.name || "", username: session.username || "", image: session.image || "" })
+  const [error, setError] = useState("")
+  const [message, setMessage] = useState("")
+  const [busy, setBusy] = useState(false)
+  async function save(event) {
+    event.preventDefault()
+    setBusy(true)
+    setError("")
+    setMessage("")
+    try {
+      await cmsRequest("profile", values)
+      await onSaved()
+      setMessage(tx("Profile updated."))
+    } catch (failure) { setError(failure.message) }
+    finally { setBusy(false) }
+  }
+  return <section className="max-w-[720px]">
+    <div className="mb-6 border-b border-[#e5e7eb] pb-5">
+      <div className="flex flex-wrap items-center gap-4">
+        {values.image ? <PhotoPreview src={values.image} alt="Profile photo" className="size-14 shrink-0"><img src={values.image} alt="Profile photo" className="size-14 rounded-full object-cover" /></PhotoPreview> : <div className="grid size-14 shrink-0 place-items-center rounded-full bg-[#fff0f5] text-xl font-semibold text-[#c5295b]">{(session.name || session.email || "A").charAt(0).toUpperCase()}</div>}
+        <div className="min-w-0">
+          <h2 className="break-words text-lg font-semibold">{session.name || tx("Admin")}</h2>
+          <p className="mt-1 break-words text-sm text-[#777a83]">{session.email}</p>
+          <p className="mt-1 text-xs font-medium uppercase text-[#b52958]">{session.role === "owner" ? tx("Owner") : tx("Team member")}</p>
+        </div>
+      </div>
+    </div>
+    <form onSubmit={save}>
+      <fieldset disabled={busy} className={fields}>
+        <ImageField folder="profiles" value={values.image} onChange={(image) => setValues({ ...values, image })} />
+        <label>{tx("Display name")}<input maxLength={80} value={values.name} onChange={(event) => setValues({ ...values, name: event.target.value })} /></label>
+        <label>{tx("Username")}<input required minLength={3} maxLength={40} pattern="[a-zA-Z0-9][a-zA-Z0-9._-]{2,39}" value={values.username} onChange={(event) => setValues({ ...values, username: event.target.value })} /></label>
+        <label>{tx("Email")}<input value={session.email || ""} disabled readOnly /></label>
+      </fieldset>
+      {error && <ErrorCard message={error} onClose={() => setError("")} />}
+      {message && <p role="status" className="mt-4 text-green-700">{message}</p>}
+      <button disabled={busy} className={`${primary} mt-5`}>{busy ? "Saving..." : tx("Save profile")}</button>
+    </form>
+  </section>
+}

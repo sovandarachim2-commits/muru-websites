@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Playfair Display", Georgia, serif;
+  --font-script: "Great Vibes", cursive;
+  --color-muru: #e83e73;
+  --color-muru-deep: #c92f61;
+  --color-ink: #18181b;
+  --color-muted: #6b6870;
+  --color-blush: #fff7f9;
+  --color-petal: #eae4e1;
+  --color-cream: #fffcfa;
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.5;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.6;
+  --text-base: 1rem;
+  --text-base--line-height: 1.65;
+  --text-4xl: 2rem;
+  --text-4xl--line-height: 1.25;
+  --text-5xl: 2.5rem;
+  --text-5xl--line-height: 1.2;
+  --text-6xl: 3.25rem;
+  --text-6xl--line-height: 1.15;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+html,
+body {
+  overflow-x: clip;
+}
+
+body {
+  margin: 0;
+  background: #fff;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer base {
+  h1, h2, h3, p, a, button, input, select, dt, dd {
+    letter-spacing: 0;
+  }
+
+  h1, h2, h3 {
+    overflow-wrap: break-word;
+    text-wrap: balance;
+  }
+
+  h1.font-display, h2.font-display {
+    font-weight: 500;
+  }
+}
+
+@utility tracking-wide {
+  letter-spacing: 0;
+}
+
+#root {
+  min-height: 100svh;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+html[lang="km"] {
+  --font-sans: "Kantumruy Pro", "DM Sans", sans-serif;
+  --font-display: "Kantumruy Pro", "Playfair Display", serif;
+}
+
+html[lang="km"] [class*="tracking-"] {
+  letter-spacing: 0;
+}
