@@ -150,6 +150,8 @@ const phrases = {
   "Open profile": "បើកប្រវត្តិ",
   "Toggle navigation": "បើកបិទម៉ឺនុយ",
   "Welcome back.": "សូមស្វាគមន៍មកវិញ។",
+  "Show password": "បង្ហាញពាក្យសម្ងាត់",
+  "Hide password": "លាក់ពាក្យសម្ងាត់",
   "CATALOG MANAGEMENT": "គ្រប់គ្រងកាតាឡុក",
   "+ Add product": "+ បន្ថែមផលិតផល",
   "New product": "ផលិតផលថ្មី",

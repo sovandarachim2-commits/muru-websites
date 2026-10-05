@@ -138,6 +138,24 @@ export function IconTikTok(props) {
   )
 }
 
+export function IconEye(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true" {...props}>
+      <path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12Z" strokeLinejoin="round" />
+      <circle cx="12" cy="12" r="2.5" />
+    </svg>
+  )
+}
+
+export function IconEyeOff(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true" {...props}>
+      <path d="M3 4.5 20 19" strokeLinecap="round" />
+      <path d="M9.5 9.8A2.5 2.5 0 0 0 12 14.5c.4 0 .8-.1 1.1-.3M6.2 7.4C4.2 8.7 2.5 12 2.5 12S6 17.5 12 17.5c1.3 0 2.5-.3 3.5-.8M10.2 6.7C10.8 6.6 11.4 6.5 12 6.5 18 6.5 21.5 12 21.5 12c-.5.8-1.2 1.7-2.1 2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 export function IconTelegram(props) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>

@@ -18,10 +18,10 @@ Use the port printed by Vite, then visit `/admin`.
 
 ## Content Storage
 
-The CMS saves centrally to `backend/data/cms.json`, separately from the existing
-shop database. The data folder contains the password hash, catalog, site settings
-and private PHP sessions. Keep this folder backed up and writable by PHP. Do not
-upload it to a public storage service. Backend `.htaccess` blocks web access.
+The CMS saves products, categories, site text, social links, roles and admin
+accounts in MySQL. The `backend/data` folder keeps private PHP sessions and is
+still used as the import source the first time the tables are created. Keep that
+folder writable by PHP. Backend `.htaccess` blocks web access.
 
 Only published products appear publicly. Category renames update assigned products.
 Categories with assigned products must be emptied before removal. Photos support

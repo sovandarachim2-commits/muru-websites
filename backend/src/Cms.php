@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/AdminUsers.php';
+require_once __DIR__ . '/CmsStore.php';
+
 function cms_file(): string
 {
     $directory = getenv('MURU_CMS_DATA_DIR') ?: dirname(__DIR__) . '/data';
@@ -12,28 +15,7 @@ function cms_file(): string
 
 function cms_store(callable $callback, bool $write = false): mixed
 {
-    $path = cms_file();
-    $handle = fopen($path . '.lock', 'c+');
-    if (!$handle || !flock($handle, $write ? LOCK_EX : LOCK_SH)) {
-        throw new RuntimeException('Could not lock content storage.');
-    }
-    try {
-        $raw = is_file($path) ? file_get_contents($path) : '';
-        if ($raw === false) throw new RuntimeException('Could not read content.');
-        $data = $raw ? json_decode($raw, true, 512, JSON_THROW_ON_ERROR) : ['revision' => 0];
-        $result = $callback($data);
-        if ($write) {
-            $encoded = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
-            $temporary = $path . '.' . bin2hex(random_bytes(8)) . '.tmp';
-            try {
-                if (file_put_contents($temporary, $encoded) !== strlen($encoded) || !rename($temporary, $path)) throw new RuntimeException('Could not save content.');
-            } finally { if (is_file($temporary)) unlink($temporary); }
-        }
-        return $result;
-    } finally {
-        flock($handle, LOCK_UN);
-        fclose($handle);
-    }
+    return cms_content_store($callback, $write);
 }
 
 function cms_image(mixed $value): string
@@ -141,10 +123,10 @@ function cms_permissions(): array
     return ['products', 'categories', 'website', 'settings', 'users', 'roles'];
 }
 
-function cms_identity(array $data, string $email): ?array
+function cms_identity(string $email): ?array
 {
-    if (isset($data['account']) && $data['account']['email'] === $email) return $data['account'] + ['role' => 'owner', 'active' => true];
-    return $data['users'][$email] ?? null;
+    if ($email === '') return null;
+    return admin_user_find(admin_users_pdo(), $email);
 }
 
 function cms_display_name(array $user): string
@@ -190,22 +172,17 @@ function cms_access(array $data, ?array $user): array
     return $user['role'] === 'owner' ? cms_permissions() : ($data['roles'][$user['role']]['permissions'] ?? []);
 }
 
-function cms_login_email(array $data, string $login): string
+function cms_login_email(string $login): string
 {
     if (str_contains($login, '@')) return $login;
-    foreach (array_merge(isset($data['account']) ? [$data['account']] : [], array_values($data['users'] ?? [])) as $entry) {
-        if (($entry['username'] ?? '') === $login) return $entry['email'];
-    }
-    return '';
+    return admin_email_for_username(admin_users_pdo(), strtolower($login)) ?? '';
 }
 
-function cms_username(array $data, array $body, string $email): string
+function cms_username(array $body, string $email): string
 {
     $username = strtolower(cms_text($body, 'username', 40, true));
     if (!preg_match('/^[a-z0-9][a-z0-9._-]{2,39}$/D', $username)) throw new InvalidArgumentException('Use 3 to 40 letters, numbers, dots, underscores or hyphens for the username.');
-    foreach (array_merge(isset($data['account']) ? [$data['account']] : [], array_values($data['users'] ?? [])) as $entry) {
-        if ($entry['email'] !== $email && ($entry['username'] ?? '') === $username) throw new InvalidArgumentException('That username is already in use.');
-    }
+    if (admin_username_taken(admin_users_pdo(), $username, $email)) throw new InvalidArgumentException('That username is already in use.');
     return $username;
 }
 
@@ -226,12 +203,14 @@ function cms_route(): never
             $expected = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? '');
             if ($origin !== '' && $origin !== $expected) Response::error('Request origin is not allowed.', 403);
         }
+        $import = cms_store(fn(array $data): bool => isset($data['account']['email']) && admin_user_count(admin_users_pdo()) === 0);
+        if ($import) cms_store(function (array &$data) { admin_users_import(admin_users_pdo(), $data); }, true);
         $data = cms_store(fn(array $data) => $data);
-        $user = cms_identity($data, $_SESSION['admin'] ?? '');
+        $user = cms_identity($_SESSION['admin'] ?? '');
         $loggedIn = $user && ($user['active'] ?? false) && ($_SESSION['expires'] ?? 0) > time() && ($_SESSION['generation'] ?? '') === ($user['generation'] ?? '');
         $permissions = $loggedIn ? cms_access($data, $user) : [];
         $setupAllowed = cms_setup_allowed();
-        if ($method === 'GET' && $path === '/api/cms/session') Response::json(['ok' => true, 'authenticated' => (bool) $loggedIn, 'permissions' => $permissions, 'role' => $loggedIn ? $user['role'] : null, 'setupRequired' => !isset($data['account']), 'setupAllowed' => $setupAllowed, 'email' => $loggedIn ? $_SESSION['admin'] : null, 'username' => $loggedIn ? ($user['username'] ?? '') : null, 'name' => $loggedIn ? cms_display_name($user) : null, 'image' => $loggedIn ? (string) ($user['image'] ?? '') : null, 'csrf' => $loggedIn ? $_SESSION['csrf'] : null]);
+        if ($method === 'GET' && $path === '/api/cms/session') Response::json(['ok' => true, 'authenticated' => (bool) $loggedIn, 'permissions' => $permissions, 'role' => $loggedIn ? $user['role'] : null, 'setupRequired' => admin_user_owner(admin_users_pdo()) === null, 'setupAllowed' => $setupAllowed, 'email' => $loggedIn ? $_SESSION['admin'] : null, 'username' => $loggedIn ? ($user['username'] ?? '') : null, 'name' => $loggedIn ? cms_display_name($user) : null, 'image' => $loggedIn ? (string) ($user['image'] ?? '') : null, 'csrf' => $loggedIn ? $_SESSION['csrf'] : null]);
         if ($method === 'GET' && $path === '/api/cms/catalog') {
             $state = $data['state'] ?? null;
             if ($state) {
@@ -244,7 +223,7 @@ function cms_route(): never
         if ($method === 'POST' && in_array($path, ['/api/cms/setup', '/api/cms/login'], true)) {
             $body = read_json();
             $email = strtolower(cms_text($body, 'email', 180, true));
-            if ($path === '/api/cms/login') $email = cms_login_email($data, $email);
+            if ($path === '/api/cms/login') $email = cms_login_email($email);
             $password = $body['password'] ?? '';
             if (($path === '/api/cms/setup' && !filter_var($email, FILTER_VALIDATE_EMAIL)) || !is_string($password) || strlen($password) > 256) Response::error('Enter a valid email and password.', 422);
             if ($path === '/api/cms/setup') {
@@ -252,9 +231,20 @@ function cms_route(): never
                 if (strlen($password) < 8) Response::error('Use a password with at least 8 characters.', 422);
                 $state = cms_validate($body['state'] ?? []);
                 $data = cms_store(function (array &$data) use ($email, $password, $state, $body) {
-                    if (isset($data['account'])) throw new LogicException('An administrator already exists.');
-                    $data = ['revision' => 1, 'account' => ['email' => $email, 'hash' => password_hash($password, PASSWORD_DEFAULT), 'generation' => bin2hex(random_bytes(16))], 'state' => $state];
-                    if (isset($body['username'])) $data['account']['username'] = cms_username($data, $body, $email);
+                    $pdo = admin_users_pdo();
+                    if (admin_user_owner($pdo)) throw new LogicException('An administrator already exists.');
+                    $data = ['revision' => 1, 'state' => $state];
+                    admin_user_put($pdo, [
+                        'email' => $email,
+                        'username' => isset($body['username']) ? cms_username($body, $email) : '',
+                        'name' => '',
+                        'role' => 'owner',
+                        'hash' => password_hash($password, PASSWORD_DEFAULT),
+                        'image' => '',
+                        'active' => true,
+                        'is_owner' => true,
+                        'generation' => bin2hex(random_bytes(16)),
+                    ]);
                     return $data;
                 }, true);
             } else {
@@ -264,7 +254,7 @@ function cms_route(): never
                     $data['attempts'] = array_filter($data['attempts'] ?? [], fn($attempt) => $attempt['until'] > $now);
                     $attempt = $data['attempts'][$key] ?? ['count' => 0, 'until' => $now + 900];
                     if ($attempt['count'] >= 10) return 'locked';
-                    $identity = cms_identity($data, $email);
+                    $identity = cms_identity($email);
                     $valid = $identity && $identity['active'] && password_verify($password, $identity['hash']);
                     if (!$valid) { $attempt['count']++; $data['attempts'][$key] = $attempt; return 'invalid'; }
                     unset($data['attempts'][$key]);
@@ -274,7 +264,7 @@ function cms_route(): never
             }
             session_regenerate_id(true);
             $data = cms_store(fn(array $data) => $data);
-            $_SESSION = ['admin' => $email, 'csrf' => bin2hex(random_bytes(32)), 'expires' => time() + 28800, 'generation' => cms_identity($data, $email)['generation']];
+            $_SESSION = ['admin' => $email, 'csrf' => bin2hex(random_bytes(32)), 'expires' => time() + 28800, 'generation' => cms_identity($email)['generation']];
             Response::json(['ok' => true, 'csrf' => $_SESSION['csrf']]);
         }
         if (!$loggedIn) Response::error('Sign in to continue.', 401);
@@ -294,8 +284,7 @@ function cms_route(): never
         if ($path === '/api/cms/access') {
             if ($method === 'GET') {
                 if (!array_intersect(['users', 'roles'], $permissions)) Response::error('Permission denied.', 403);
-                $users = array_map(fn($entry) => array_intersect_key($entry, array_flip(['email', 'username', 'name', 'role', 'active'])), array_values($data['users'] ?? []));
-                array_unshift($users, ['email' => $data['account']['email'], 'name' => 'Owner', 'role' => 'owner', 'active' => true]);
+                $users = array_map(fn(array $entry): array => ['email' => $entry['email'], 'username' => $entry['username'], 'name' => cms_display_name($entry), 'role' => $entry['role'], 'active' => $entry['active']], admin_users_list(admin_users_pdo()));
                 Response::json(['ok' => true, 'users' => $users, 'roles' => $data['roles'] ?? new stdClass(), 'permissions' => cms_permissions()]);
             }
             if ($method === 'POST') {
@@ -303,13 +292,14 @@ function cms_route(): never
                 $kind = $body['kind'] ?? '';
                 if (!in_array($kind, ['users', 'roles'], true) || !in_array($kind, $permissions, true)) Response::error('Permission denied.', 403);
                 cms_store(function (array &$data) use ($body, $kind) {
-                    $actor = cms_identity($data, $_SESSION['admin']);
+                    $pdo = admin_users_pdo();
+                    $actor = cms_identity($_SESSION['admin']);
                     if (!in_array($kind, cms_access($data, $actor), true)) Response::error('Permission denied.', 403);
                     if ($kind === 'roles') {
                         $id = cms_text($body, 'id', 80, true);
                         if ($id === 'owner') throw new InvalidArgumentException('The owner role cannot be changed.');
                         if (($body['delete'] ?? false)) {
-                            foreach ($data['users'] ?? [] as $entry) if ($entry['role'] === $id) throw new InvalidArgumentException('Reassign users before deleting this role.');
+                            if (admin_users_role_assigned($pdo, $id)) throw new InvalidArgumentException('Reassign users before deleting this role.');
                             unset($data['roles'][$id]);
                         } else {
                             $grants = $body['permissions'] ?? [];
@@ -319,16 +309,17 @@ function cms_route(): never
                     } else {
                         $email = strtolower(cms_text($body, 'email', 180, true));
                         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) throw new InvalidArgumentException('Invalid email.');
-                        if ($email === $data['account']['email'] || $email === $_SESSION['admin']) throw new InvalidArgumentException('This account cannot be changed here.');
-                        if ($body['delete'] ?? false) { unset($data['users'][$email]); return; }
+                        $owner = admin_user_owner($pdo);
+                        if (($owner && $email === $owner['email']) || $email === $_SESSION['admin']) throw new InvalidArgumentException('This account cannot be changed here.');
+                        if ($body['delete'] ?? false) { admin_user_delete($pdo, $email); return; }
                         $role = cms_text($body, 'role', 80, true);
                         if (!isset($data['roles'][$role])) throw new InvalidArgumentException('Choose an existing role.');
-                        $entry = $data['users'][$email] ?? ['email' => $email];
-                        $entry['username'] = cms_username($data, $body, $email);
+                        $entry = admin_user_find($pdo, $email) ?? ['email' => $email, 'image' => '', 'is_owner' => false];
+                        $entry['username'] = cms_username($body, $email);
                         $password = $body['password'] ?? '';
                         if (!is_string($password) || ($password !== '' && (strlen($password) < 8 || strlen($password) > 256)) || (!isset($entry['hash']) && $password === '')) throw new InvalidArgumentException('Use a password with 8 to 256 characters.');
                         if ($password !== '') $entry['hash'] = password_hash($password, PASSWORD_DEFAULT);
-                        $data['users'][$email] = array_merge($entry, ['name' => cms_text($body, 'name', 80, true), 'role' => $role, 'active' => (bool) ($body['active'] ?? true), 'generation' => bin2hex(random_bytes(16))]);
+                        admin_user_put($pdo, array_merge($entry, ['email' => $email, 'name' => cms_text($body, 'name', 80, true), 'role' => $role, 'active' => (bool) ($body['active'] ?? true), 'is_owner' => false, 'generation' => bin2hex(random_bytes(16))]));
                     }
                 }, true);
                 Response::json(['ok' => true]);
@@ -339,7 +330,7 @@ function cms_route(): never
             $body = read_json();
             $state = cms_validate($body['state'] ?? []);
             $saved = cms_store(function (array &$data) use ($body, $state) {
-                $actor = cms_identity($data, $_SESSION['admin']);
+                $actor = cms_identity($_SESSION['admin']);
                 $grants = cms_access($data, $actor);
                 foreach (['products' => 'products', 'categories' => 'categories', 'settings' => 'website', 'social' => 'settings'] as $key => $permission) {
                     if ($state[$key] !== $data['state'][$key] && !in_array($permission, $grants, true)) Response::error('Permission denied for ' . $permission . '.', 403);
@@ -356,32 +347,30 @@ function cms_route(): never
             $body = read_json();
             $password = $body['password'] ?? '';
             if (!is_string($password) || strlen($password) < 8 || strlen($password) > 256) Response::error('Use a password with 8 to 256 characters.', 422);
-            $generation = cms_store(function (array &$data) use ($body, $password) {
-                $email = $_SESSION['admin'];
-                if ($email === $data['account']['email']) $entry =& $data['account'];
-                else $entry =& $data['users'][$email];
-                if (!$entry || !password_verify((string) ($body['currentPassword'] ?? ''), $entry['hash'])) throw new InvalidArgumentException('Current password is incorrect.');
-                $entry['hash'] = password_hash($password, PASSWORD_DEFAULT);
-                return $entry['generation'] = bin2hex(random_bytes(16));
-            }, true);
+            $entry = cms_identity($_SESSION['admin']);
+            if (!$entry || !password_verify((string) ($body['currentPassword'] ?? ''), $entry['hash'])) throw new InvalidArgumentException('Current password is incorrect.');
+            $entry['hash'] = password_hash($password, PASSWORD_DEFAULT);
+            $entry['generation'] = bin2hex(random_bytes(16));
+            admin_user_put(admin_users_pdo(), $entry);
+            $generation = $entry['generation'];
             $_SESSION['generation'] = $generation;
             Response::json(['ok' => true]);
         }
         if ($method === 'POST' && $path === '/api/cms/profile') {
             $body = read_json();
-            cms_store(function (array &$data) use ($body) {
-                $email = $_SESSION['admin'];
-                if ($email === $data['account']['email']) $entry =& $data['account'];
-                else $entry =& $data['users'][$email];
-                $entry['name'] = cms_text($body, 'name', 80);
-                $entry['username'] = cms_username($data, $body, $email);
-                $entry['image'] = cms_image($body['image'] ?? '');
-            }, true);
+            $email = $_SESSION['admin'];
+            $entry = cms_identity($email);
+            if (!$entry) throw new InvalidArgumentException('Sign in to continue.');
+            $entry['name'] = cms_text($body, 'name', 80);
+            $entry['username'] = cms_username($body, $email);
+            $entry['image'] = cms_image($body['image'] ?? '');
+            admin_user_put(admin_users_pdo(), $entry);
             Response::json(['ok' => true]);
         }
         if ($method === 'POST' && $path === '/api/cms/logout') { $_SESSION = []; session_destroy(); Response::json(['ok' => true]); }
         Response::error('Route not found.', 404);
     } catch (InvalidArgumentException $error) { Response::error($error->getMessage(), 422);
     } catch (LogicException $error) { Response::error($error->getMessage(), 409);
+    } catch (PDOException $error) { error_log($error->getMessage()); Response::error('The user database is unavailable. Check the MySQL settings.', 500);
     } catch (Throwable $error) { error_log($error->getMessage()); Response::error('Content storage is unavailable. Check backend data folder permissions.', 500); }
 }
