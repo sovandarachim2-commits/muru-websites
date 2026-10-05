@@ -1,0 +1,8 @@
+RewriteEngine On
+
+# Put the backend directory alongside the deployed frontend index.html.
+# END prevents the frontend fallback from serving index.html for API requests.
+RewriteRule ^api(?:/.*)?$ backend/public/index.php [QSA,END]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]
