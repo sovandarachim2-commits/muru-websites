@@ -75,11 +75,26 @@ try {
   assert.equal((await request('save', { state, revision: 1 }, { headers: { Origin: 'https://other.example' } })).status, 403)
   state.products[1].status = 'published'
   state.settings.heroTitle = 'Updated hero'
+  state.productOptions = {
+    packaging: [{ value: 'pump', en: 'Pump', km: '\u1794\u17bc\u1798' }, { value: 'jar', en: 'Jar', km: '\u1780\u17d2\u179a\u17a1' }, { value: 'spray', en: 'Spray', km: '\u1794\u17b6\u1789\u17cb' }],
+    colors: [{ value: 'pink', en: 'Pink', km: '\u1795\u17d2\u1780\u17b6\u1788\u17bc\u1780' }, { value: 'rose', en: 'Rose', km: '\u1780\u17bb\u179b\u17b6\u1794' }, { value: 'green', en: 'Green', km: '\u1794\u17c3\u178f\u1784' }],
+  }
+  state.products[0].variant = 'spray'
+  state.products[0].tone = 'green'
   const save = await request('save', { state, revision: 1 })
   assert.equal(save.status, 200)
   assert.equal(save.data.revision, 2)
   assert.equal((await request('catalog')).data.state.products.length, 2)
   assert.equal((await request('catalog')).data.state.settings.heroTitle, 'Updated hero')
+  assert.deepEqual((await request('admin')).data.state.productOptions, state.productOptions)
+  assert.equal((await request('catalog')).data.state.products[0].variant, 'spray')
+  assert.equal((await request('catalog')).data.state.products[0].tone, 'green')
+  const duplicateOptions = structuredClone(state)
+  duplicateOptions.productOptions.colors.push({ ...duplicateOptions.productOptions.colors[0] })
+  assert.equal((await request('save', { state: duplicateOptions, revision: 2 })).status, 422)
+  const removedOptions = structuredClone(state)
+  removedOptions.productOptions.packaging = removedOptions.productOptions.packaging.filter((option) => option.value !== 'spray')
+  assert.equal((await request('save', { state: removedOptions, revision: 2 })).status, 422)
   assert.equal((await request('save', { state, revision: 1 })).status, 409)
   state.products[0].image = 'data:image/svg+xml;base64,PHN2Zy8+'
   assert.equal((await request('save', { state, revision: 2 })).status, 422)

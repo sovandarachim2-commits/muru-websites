@@ -1,14 +1,52 @@
 import { useEffect, useRef, useState } from "react"
-import { defaultCmsState } from "../../data/site"
+import { defaultCmsState, normalizeSocial } from "../../data/site"
 import { cmsRequest, setCsrf } from "../../data/cms"
 import { AccountSettings, CategoryManager, ErrorCard, ImageField, ProfileSettings, WebsiteEditor, newId } from "./AdminControls"
 import ProductArt from "../../components/ProductArt"
 import PhotoPreview from "../../components/PhotoPreview"
 import UserManagement from "./UserManagement"
-import { IconArrow, IconClose, IconEye, IconEyeOff, IconMenu, IconSearch } from "../../components/Icons"
+import ProductOptions, { optionDefaults, optionLabel } from "./ProductOptions"
+import Branding from "./Branding"
+import { IconArrow, IconClose, IconEye, IconEyeOff, IconImage, IconMenu, IconSearch } from "../../components/Icons"
 import { LanguageSwitch, useI18n } from "../../data/i18n"
 
-const emptyProduct = { title: "", slug: "", category: "Skincare", type: "", benefit: "", price: "", variant: "pump", tone: "pink", image: "", size: "", skinType: "", ingredients: "", howToUse: "", story: "", status: "draft", isNew: false, bestSeller: false }
+const emptyProduct = { title: "", slug: "", category: "Skincare", type: "", benefit: "", price: "", variant: "pump", tone: "pink", image: "", images: [], size: "", skinType: "", ingredients: "", howToUse: "", story: "", status: "draft", isNew: false, bestSeller: false }
+
+const contactFields = [
+  ["phone", "Phone", "tel", "+855 12 345 678"],
+  ["email", "Email", "email", "info@muru.com"],
+  ["address", "Address", "text", "Phnom Penh, Cambodia"],
+  ["telegramContact", "Telegram contact", "url", "https://t.me/your_username"],
+]
+const socialFields = [
+  ["facebook", "Facebook", "url", "https://facebook.com/"],
+  ["instagram", "Instagram", "url", "https://instagram.com/"],
+  ["tiktok", "TikTok", "url", "https://www.tiktok.com/"],
+  ["telegram", "Telegram", "url", "https://t.me/"],
+]
+
+function ContactLinksForm({ links, setLinks, onSubmit }) {
+  const { tx } = useI18n()
+  function field(key, label, type, placeholder) {
+    return (
+      <label key={key}>
+        {tx(label)}
+        <input type={type} inputMode={key === "phone" ? "tel" : undefined} placeholder={placeholder} value={links[key] || ""} onChange={(event) => setLinks({ ...links, [key]: event.target.value })} />
+      </label>
+    )
+  }
+  return (
+    <form className="max-w-[600px] [&_h2]:mb-2 [&_h2]:text-[18px] [&_h2]:font-semibold [&_h3]:mt-8 [&_h3]:mb-4 [&_h3]:text-[15px] [&_h3]:font-semibold [&_label]:grid [&_label]:gap-2 [&_label]:text-[13px] [&_label]:font-medium [&_label]:text-[#50525b] [&_label]:mb-5 [&>button]:mt-5" onSubmit={onSubmit}>
+      <h2>{tx("Contact & social links")}</h2>
+      <p className="mb-6 text-[13px] text-[#777a83]">{tx("Same details shown in the website footer.")}</p>
+      <h3>{tx("Contact")}</h3>
+      {contactFields.map((item) => field(...item))}
+      <h3>{tx("Social links")}</h3>
+      {socialFields.map((item) => field(...item))}
+      <button className="inline-flex min-h-[42px] items-center justify-center rounded-md px-[18px] py-2.5 text-[14px] font-semibold bg-[#d52c63] text-white hover:bg-[#b92153]">{tx("Save changes")}</button>
+    </form>
+  )
+}
 
 function PasswordField({ label, minLength, autoComplete }) {
   const { tx } = useI18n()
@@ -81,7 +119,7 @@ export default function Admin() {
   }
 
   async function saveContent(changes) {
-    const required = { products: "products", categories: "categories", settings: "website", social: "settings" }
+    const required = { products: "products", productOptions: "products", categories: "categories", settings: "website", social: "settings" }
     if (Object.keys(changes).some((key) => JSON.stringify(changes[key]) !== JSON.stringify(stateRef.current[key]) && !session.permissions.includes(required[key]))) throw new Error("Your role does not have permission to save these changes.")
     if (saving.current) throw new Error("A save is already in progress. Try again when it finishes.")
     saving.current = true
@@ -124,19 +162,22 @@ function rememberAdminTab(name) {
 function AdminWorkspace({ serverState, saveContent, logout, refresh, sessionError, clearSessionError, session }) {
   const { lang, setLang, tx } = useI18n()
   const permissions = session.permissions || []
-  const tabs = ["Overview", "Products", ...(permissions.includes("categories") ? ["Categories"] : []), ...(permissions.some((grant) => ["website", "settings"].includes(grant)) ? ["Website"] : []), "Settings", ...(permissions.includes("users") ? ["Users"] : []), ...(permissions.includes("roles") ? ["Roles"] : [])]
+  const tabs = ["Overview", "Products", ...(permissions.includes("products") ? ["Product Options"] : []), ...(permissions.includes("categories") ? ["Categories"] : []), ...(permissions.some((grant) => ["website", "settings"].includes(grant)) ? ["Website"] : []), ...(permissions.includes("users") ? ["Users"] : []), ...(permissions.includes("roles") ? ["Roles"] : [])]
+  if (permissions.includes("website")) tabs.splice(tabs.indexOf("Website") + 1, 0, "Branding")
   const [tab, setTab] = useState(() => adminTabFromLocation(tabs))
   const [items, setItems] = useState(Array.isArray(serverState.products) ? serverState.products : [])
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState("All categories")
   const [status, setStatus] = useState("All statuses")
   const [editor, setEditor] = useState(null)
+  const [imageEditor, setImageEditor] = useState(null)
+  const [imageError, setImageError] = useState("")
   const [deleting, setDeleting] = useState(null)
   const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
   const [menu, setMenu] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
-  const [links, setLinks] = useState(serverState.social)
+  const [links, setLinks] = useState(() => normalizeSocial(serverState.social))
   const [saving, setSaving] = useState(false)
   const tabKey = tabs.join("|")
   function openTab(name) {
@@ -155,6 +196,7 @@ function AdminWorkspace({ serverState, saveContent, logout, refresh, sessionErro
     return () => window.removeEventListener("hashchange", syncTab)
   }, [tabKey])
   const categoryList = Array.isArray(serverState.categories) ? serverState.categories : []
+  const options = serverState.productOptions || optionDefaults()
   const categories = categoryList.map((item) => item.title)
   const published = items.filter((item) => item.status !== "draft")
   const visible = items.filter((item) =>
@@ -179,7 +221,8 @@ function AdminWorkspace({ serverState, saveContent, logout, refresh, sessionErro
 
   async function saveProduct(event) {
     event.preventDefault()
-    const product = { ...editor, title: editor.title.trim(), type: editor.type.trim(), benefit: editor.benefit.trim(), slug: editor.slug.trim().toLowerCase() }
+    const images = Array.isArray(editor.images) ? editor.images.filter(Boolean) : []
+    const product = { ...editor, images, title: editor.title.trim(), type: editor.type.trim(), benefit: editor.benefit.trim(), slug: editor.slug.trim().toLowerCase() }
     delete product.colorChoices
     delete product.packagingChoices
     const price = Number(product.price)
@@ -203,22 +246,46 @@ function AdminWorkspace({ serverState, saveContent, logout, refresh, sessionErro
     await persist(next, on ? `${item.title} is on.` : `${item.title} is off.`)
   }
 
+  function openImages(product) {
+    if (!permissions.includes("products")) { setError("Your role does not have permission to edit products."); return }
+    setImageError("")
+    setImageEditor({ ...product, images: Array.isArray(product.images) ? [...product.images] : [] })
+  }
+
+  async function saveImages(event) {
+    event.preventDefault()
+    if (saving) return
+    setSaving(true)
+    setImageError("")
+    try {
+      const next = items.map((item) => item.id === imageEditor.id ? { ...item, image: imageEditor.image, images: imageEditor.images } : item)
+      const saved = await saveContent({ products: next })
+      setItems(saved?.products || next)
+      setImageEditor(null)
+      setNotice("Product images saved.")
+    } catch (failure) { setImageError(failure.message) } finally { setSaving(false) }
+  }
+
   function openEditor(product = emptyProduct) {
     if (!permissions.includes("products")) { setError("Your role does not have permission to edit products."); return }
     setError("")
-    setEditor({ ...emptyProduct, ...product, category: product.id ? product.category : categories[0] || "", status: product.status || "published" })
+    setEditor({ ...emptyProduct, ...product, images: Array.isArray(product.images) ? product.images : [], category: product.id ? product.category : categories[0] || "", status: product.status || "published" })
   }
 
   async function saveSettings(event) {
     event.preventDefault()
     try {
-      const cleaned = Object.fromEntries(Object.entries(links).map(([key, value]) => [key, value.trim()]))
-      if (Object.values(cleaned).some((value) => value !== "" && new URL(value).protocol !== "https:")) throw new Error("url")
+      const cleaned = normalizeSocial(Object.fromEntries(Object.entries(links).map(([key, value]) => [key, String(value).trim()])))
+      if (socialFields.some(([key]) => cleaned[key] !== "" && !cleaned[key].startsWith("https://"))) throw new Error("url")
+      if (cleaned.telegramContact && !cleaned.telegramContact.startsWith("https://")) throw new Error("url")
+      if (cleaned.email !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned.email)) throw new Error("email")
       await saveContent({ social: cleaned })
-      setNotice("Contact links saved.")
+      setLinks(cleaned)
+      setNotice("Contact and social links saved.")
       setError("")
     } catch (failure) {
-      setError(failure.message === "url" ? "Use a complete https:// URL for each contact link." : failure.message)
+      const message = failure.message === "url" ? "Use a complete https:// URL for each social link." : failure.message === "email" ? "Enter a valid email address." : failure.message
+      setError(message)
     }
   }
 
@@ -249,24 +316,26 @@ function AdminWorkspace({ serverState, saveContent, logout, refresh, sessionErro
           {(error || sessionError) && <ErrorCard message={tx(error || sessionError)} onClose={() => { setError(""); clearSessionError() }} />}
           {tab === "Overview" && <>
             <div className="mb-[34px] grid grid-cols-2 gap-3 min-[761px]:grid-cols-4 min-[1101px]:gap-[18px] [&_article]:rounded-md [&_article]:border [&_article]:border-[#e5e7eb] [&_article]:bg-white [&_article]:p-[18px] min-[1101px]:[&_article]:p-[22px] [&_span]:block [&_span]:text-[13px] [&_span]:text-[#71747d] [&_strong]:mt-3 [&_strong]:block [&_strong]:text-[32px] [&_strong]:leading-[1.2] [&_strong]:font-semibold">{[["Total products", items.length], ["On", published.length], ["Off", items.length - published.length], ["Categories", new Set(items.map((item) => item.category)).size]].map(([label, count]) => <article key={label}><span>{label}</span><strong>{count}</strong></article>)}</div>
-            <section className="mb-8 [&_h2]:text-[18px] [&_h2]:font-semibold"><div className="mb-[18px] flex items-center justify-between gap-4"><h2>Recently updated</h2><button className="flex items-center gap-2 text-[13px] text-[#c5295b]" onClick={() => openTab("Products")}>All products <IconArrow className="h-4 w-4" /></button></div><ProductTable items={[...items].sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || "")).slice(0, 5)} saving={saving} onEdit={openEditor} onDelete={setDeleting} onStatus={setProductStatus} /></section>
+            <section className="mb-8 [&_h2]:text-[18px] [&_h2]:font-semibold"><div className="mb-[18px] flex items-center justify-between gap-4"><h2>Recently updated</h2><button className="flex items-center gap-2 text-[13px] text-[#c5295b]" onClick={() => openTab("Products")}>All products <IconArrow className="h-4 w-4" /></button></div><ProductTable options={options} items={[...items].sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || "")).slice(0, 5)} saving={saving} onEdit={openEditor} onDelete={setDeleting} onStatus={setProductStatus} /></section>
             <section className="flex items-center gap-7 pt-2 max-[400px]:gap-4 [&_img]:h-[110px] [&_img]:w-[140px] [&_img]:rounded-md [&_img]:object-cover max-[400px]:[&_img]:h-[100px] max-[400px]:[&_img]:w-[90px] [&_h2]:font-display [&_h2]:text-[25px] [&_h2]:font-medium max-[400px]:[&_h2]:text-[21px] [&_a]:mt-3 [&_a]:flex [&_a]:items-center [&_a]:gap-2 [&_a]:text-[13px] [&_a]:text-[#b52958]"><img src="/images/cluster.jpg" alt="MURU skincare collection" /><div><p className="mb-2 text-[11px] font-bold text-[#b52958]">MURU COLLECTION</p><h2>A little care. Every day.</h2><a href="/products" target="_blank" rel="noreferrer">View the collection <IconArrow className="h-4 w-4" /></a></div></section>
           </>}
           {tab === "Products" && <section className="mb-8 [&_h2]:text-[18px] [&_h2]:font-semibold">
             <div className="mb-5 flex flex-wrap items-center gap-3 [&>span]:ml-auto [&>span]:text-[13px] [&>span]:text-[#777a83] [&>select]:w-auto! [&>select]:max-w-full"><label className="relative min-w-[180px] flex-1 [&_svg]:absolute [&_svg]:top-[13px] [&_svg]:left-3 [&_svg]:text-[#777a83] [&_input]:pl-9!"><IconSearch className="h-4 w-4" /><input aria-label={tx("Search products")} placeholder={tx("Search products")} value={query} onChange={(event) => setQuery(event.target.value)} /></label><select aria-label={tx("Filter category")} value={category} onChange={(event) => setCategory(event.target.value)}><option value="All categories">{tx("All categories")}</option>{categories.map((value) => <option key={value} value={value}>{tx(value)}</option>)}</select><select aria-label={tx("Filter status")} value={status} onChange={(event) => setStatus(event.target.value)}><option value="All statuses">{tx("All statuses")}</option><option value="published">{tx("On")}</option><option value="draft">{tx("Off")}</option></select><span>{visible.length} {tx("products")}</span></div>
-            <ProductTable items={visible} saving={saving} onEdit={openEditor} onDelete={setDeleting} onStatus={setProductStatus} />
+            <ProductTable items={visible} options={options} saving={saving} onEdit={openEditor} onImages={openImages} onDelete={setDeleting} onStatus={setProductStatus} />
           </section>}
           {tab === "Categories" && <CategoryManager categories={categoryList} products={items} onSave={async (nextCategories, nextProducts) => { const saved = await saveContent({ categories: nextCategories, products: nextProducts }); setItems(saved?.products || nextProducts); setCategory("All categories"); setNotice("Categories saved.") }} />}
-          {tab === "Website" && <WebsiteEditor initial={serverState.settings} canEditWebsite={permissions.includes("website")} contactForm={permissions.includes("settings") ? (<form className="max-w-[600px] [&_h2]:mb-6 [&_h2]:text-[18px] [&_h2]:font-semibold [&_label]:grid [&_label]:gap-2 [&_label]:text-[13px] [&_label]:font-medium [&_label]:text-[#50525b] [&_label]:mb-5 [&>button]:mt-5" onSubmit={saveSettings}><h2>Contact & social links</h2>{Object.entries(links).map(([key, value]) => <label key={key}>{key.charAt(0).toUpperCase() + key.slice(1)}<input type="url" value={value} onChange={(event) => setLinks({ ...links, [key]: event.target.value })} /></label>)}<button className="inline-flex min-h-[42px] items-center justify-center rounded-md px-[18px] py-2.5 text-[14px] font-semibold bg-[#d52c63] text-white hover:bg-[#b92153]">Save changes</button></form>) : null} onSave={async (settings) => { await saveContent({ settings }); setNotice("Website updated.") }} />}
+          {tab === "Website" && <WebsiteEditor initial={serverState.settings} canEditWebsite={permissions.includes("website")} contactForm={permissions.includes("settings") ? <ContactLinksForm links={links} setLinks={setLinks} onSubmit={saveSettings} /> : null} onSave={async (settings) => { await saveContent({ settings }); setNotice("Website updated.") }} />}
 
-          {tab === "Settings" && <AccountSettings />}
+          {tab === "Product Options" && <ProductOptions initial={serverState.productOptions} products={items} onSave={async (productOptions) => { await saveContent({ productOptions }); setNotice("Product options saved.") }} />}
           {tab === "Users" && <UserManagement key="users" view="users" permissions={permissions} email={session.email} />}
           {tab === "Roles" && <UserManagement key="roles" view="roles" permissions={permissions} email={session.email} />}
+          {tab === "Branding" && <Branding initial={serverState.settings} onSave={async (branding) => { await saveContent({ settings: { ...serverState.settings, ...branding } }); setNotice("Branding saved.") }} />}
         </main>
-        {profileOpen && <Modal title={tx("Profile")} onClose={() => setProfileOpen(false)}><div className="mx-auto max-w-[560px]"><ProfileSettings session={session} onSaved={refresh} /><div className="mt-5 border-t border-[#e5e7eb] pt-4"><button className="text-[13px] font-medium text-[#c5295b]" onClick={logout}>{tx("Sign out")}</button></div></div></Modal>}
+        {profileOpen && <Modal title={tx("Profile")} onClose={() => setProfileOpen(false)}><div className="mx-auto max-w-[560px]"><ProfileSettings session={session} onSaved={refresh} /><AccountSettings /><div className="mt-5 border-t border-[#e5e7eb] pt-4"><button className="text-[13px] font-medium text-[#c5295b]" onClick={logout}>{tx("Sign out")}</button></div></div></Modal>}
       </div>
+      {imageEditor && <Modal title={tx("Product images")} onClose={() => { if (!saving) setImageEditor(null) }}><form onSubmit={saveImages}><fieldset disabled={saving} className="min-w-0"><p className="mb-5 break-words text-[14px] text-[#777a83]">{imageEditor.title}</p>{imageError && <p role="alert" className="mb-4 text-red-700">{imageError}</p>}<ProductImageEditor editor={imageEditor} setEditor={setImageEditor} expanded /><div className="sticky -bottom-5 z-10 -mx-5 -mb-5 mt-6 flex justify-end gap-3 border-t border-[#e5e7eb] bg-white px-5 py-4 min-[761px]:-bottom-[26px] min-[761px]:-mx-[26px] min-[761px]:-mb-[26px] min-[761px]:px-[26px]"><button type="button" className="min-h-[42px] rounded-md border border-[#dcdfe4] px-5 py-2 text-[14px] font-medium" onClick={() => setImageEditor(null)}>{tx("Cancel")}</button><button className="min-h-[42px] rounded-md bg-[#d52c63] px-6 py-2 text-[14px] font-semibold text-white hover:bg-[#b92153]">{tx(saving ? "Saving..." : "Save")}</button></div></fieldset></form></Modal>}
       {editor && <Modal title={editor.id ? tx("Edit product") : tx("New product")} onClose={() => setEditor(null)}><form onSubmit={saveProduct} className="grid grid-cols-1 items-start gap-6 min-[761px]:grid-cols-[200px_minmax(0,1fr)]">
-        <div className="min-w-0 space-y-4 [&_input]:min-w-0 [&_input]:max-w-full [&_input[type=file]]:w-full [&_input[type=file]]:text-[12px] [&_label]:block [&_label]:text-[13px] [&_label]:text-[#50525b]"><PhotoPreview src={editor.image} alt={editor.title || tx("New product")} className="mx-auto block h-40 w-[130px] overflow-hidden rounded-md border border-[#edf0f2] bg-[#fff5f8] min-[761px]:h-[230px] min-[761px]:w-full"><ProductArt variant={editor.variant} tone={editor.tone} image={editor.image} alt={editor.title} /></PhotoPreview><ImageField value={editor.image} onChange={(image) => setEditor({ ...editor, image })} /></div>
+        <ProductImageEditor editor={editor} setEditor={setEditor} />
         <div className="grid min-w-0 gap-4 [&_label]:grid [&_label]:gap-2 [&_label]:text-[13px] [&_label]:font-medium [&_label]:text-[#50525b]">
           <div className="grid min-w-0 grid-cols-1 gap-3.5 min-[1024px]:grid-cols-3 [&_label]:min-w-0 [&_input]:min-w-0 [&_select]:min-w-0">
           <label>{tx("Product name")}<span className="text-[#c73542]" aria-hidden="true"> *</span><input required maxLength={160} placeholder={tx("e.g. MURU Foam Blue")} value={editor.title} onChange={(event) => { const title = event.target.value; setEditor({ ...editor, title, ...(!editor.id ? { slug: title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") } : {}) }) }} /></label>
@@ -280,7 +349,7 @@ function AdminWorkspace({ serverState, saveContent, logout, refresh, sessionErro
             <label>{tx("Skin type")}<input maxLength={160} placeholder={tx("e.g. Normal, Oily")} value={editor.skinType} onChange={(event) => setEditor({ ...editor, skinType: event.target.value })} /></label>
           </div>
           {[['ingredients', 'Ingredients', 'e.g. Water, Glycerin...'], ['howToUse', 'How to use', 'e.g. Apply to face...'], ['story', 'Product story', 'e.g. Why we created this...']].map(([key, label, placeholder]) => <label key={key}>{tx(label)}<textarea rows={3} maxLength={4000} placeholder={tx(placeholder)} value={editor[key]} onChange={(event) => setEditor({ ...editor, [key]: event.target.value })} /></label>)}
-          <div className="grid grid-cols-1 gap-3.5 min-[401px]:grid-cols-2 [&_label]:grid [&_label]:gap-2 [&_label]:text-[13px] [&_label]:font-medium [&_label]:text-[#50525b]"><label>{tx("Packaging")}<select value={editor.variant} onChange={(event) => setEditor({ ...editor, variant: event.target.value })}>{["pump", "jar", "dropper", "compact", "tube", "bottle"].map((value) => <option key={value} value={value}>{tx(value)}</option>)}</select></label><label>{tx("Color")}<select value={editor.tone} onChange={(event) => setEditor({ ...editor, tone: event.target.value })}>{["pink", "blue", "rose", "cream"].map((value) => <option key={value} value={value}>{tx(value)}</option>)}</select></label></div>
+          <div className="grid grid-cols-1 gap-3.5 min-[401px]:grid-cols-2">{[["packaging", "Packaging", "variant"], ["colors", "Color", "tone"]].map(([group, label, field]) => <label key={field}>{tx(label)}<select required value={editor[field]} onChange={(event) => setEditor({ ...editor, [field]: event.target.value })}><option value="">{tx("Select")}</option>{options[group].map((entry) => <option key={entry.value} value={entry.value}>{optionLabel(options, group, entry.value, lang)}</option>)}</select></label>)}</div>
           <label>{tx("Status")}<select value={editor.status === "draft" ? "draft" : "published"} onChange={(event) => setEditor({ ...editor, status: event.target.value })}><option value="published">{tx("On")}</option><option value="draft">{tx("Off")}</option></select></label>
           <div className="flex flex-wrap gap-[18px] text-[13px] [&_label]:mb-0! [&_label]:flex! [&_label]:items-center [&_label]:gap-2 [&_input]:size-4 [&_input]:accent-[#d52c63]"><label><input type="checkbox" checked={Boolean(editor.isNew)} onChange={(event) => setEditor({ ...editor, isNew: event.target.checked })} />{tx("New arrival")}</label><label><input type="checkbox" checked={Boolean(editor.bestSeller)} onChange={(event) => setEditor({ ...editor, bestSeller: event.target.checked })} />{tx("Best seller")}</label></div>
         </div>
@@ -289,6 +358,75 @@ function AdminWorkspace({ serverState, saveContent, logout, refresh, sessionErro
       {deleting && <Modal title={tx("Delete product?")} onClose={() => setDeleting(null)}><p className="mb-[26px]">{deleting.title} {tx("will be removed from the catalog.")}</p><div className="mt-3 flex flex-wrap justify-end gap-2.5"><button className="inline-flex min-h-[42px] items-center justify-center rounded-md px-[18px] py-2.5 text-[14px] font-semibold border border-[#dcdfe4] bg-white text-[#454750]" disabled={saving} onClick={() => setDeleting(null)}>{tx("Cancel")}</button><button className="inline-flex min-h-[42px] items-center justify-center rounded-md px-[18px] py-2.5 text-[14px] font-semibold bg-[#c73542] text-white" disabled={saving} onClick={async () => { if (await persist(items.filter((item) => item.id !== deleting.id), "Product deleted.")) setDeleting(null) }}>{tx("Delete product")}</button></div></Modal>}
     </div>
   )
+}
+
+function productEditorImages(editor) {
+  const gallery = Array.isArray(editor.images) ? editor.images.filter(Boolean) : []
+  return [editor.image, ...gallery].filter((image, index, list) => image && list.indexOf(image) === index)
+}
+
+function ProductImageEditor({ editor, setEditor, expanded = false }) {
+  const { tx } = useI18n()
+  const images = productEditorImages(editor)
+  const [selected, setSelected] = useState("")
+  const preview = images.includes(selected) ? selected : editor.image
+  function moveImage(image, direction) {
+    setEditor((current) => {
+      if (!current) return current
+      const ordered = productEditorImages(current)
+      const index = ordered.indexOf(image)
+      const destination = index + direction
+      if (index < 0 || destination < 0 || destination >= ordered.length) return current
+      ;[ordered[index], ordered[destination]] = [ordered[destination], ordered[index]]
+      return { ...current, image: ordered[0] || "", images: ordered.slice(1) }
+    })
+  }
+  function setMain(image) {
+    setEditor((current) => current ? { ...current, image, images: productEditorImages(current).filter((item) => item !== image) } : current)
+  }
+  function addImage(image) {
+    if (!image) return
+    setEditor((current) => {
+      if (!current) return current
+      const nextImages = productEditorImages(current)
+      if (!nextImages.includes(image)) nextImages.push(image)
+      return { ...current, image: current.image || image, images: nextImages.filter((item) => item !== (current.image || image)) }
+    })
+  }
+  function removeImage(image) {
+    setEditor((current) => {
+      if (!current) return current
+      const remaining = productEditorImages(current).filter((item) => item !== image)
+      return { ...current, image: remaining[0] || "", images: remaining.slice(1) }
+    })
+  }
+  if (expanded) return <div className="grid min-w-0 gap-6 min-[761px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+    <div className="min-w-0">
+      <div className="mb-3 flex items-center justify-between"><h3 className="text-[14px] font-semibold">{tx("Preview")}</h3>{preview && preview === editor.image && <span className="rounded bg-[#eaf6ee] px-2 py-1 text-[11px] font-medium text-[#24724c]">{tx("Primary")}</span>}</div>
+      <PhotoPreview src={preview} alt={editor.title} className="grid aspect-square max-h-[380px] w-full place-items-center overflow-hidden rounded-md border border-[#e5e7eb] bg-[#f6f7f8] [&_img]:h-full [&_img]:w-full [&_img]:object-contain"><ProductArt variant={editor.variant} tone={editor.tone} image={preview} alt={editor.title} /></PhotoPreview>
+    </div>
+    <div className="min-w-0">
+      <div className="mb-3 flex items-center justify-between"><h3 className="text-[14px] font-semibold">{tx("Images")}</h3><span className="text-[12px] text-[#777a83]">{images.length}</span></div>
+      <ol className="max-h-[300px] space-y-2 overflow-y-auto pr-1">{images.map((image, index) => <li key={image} className={`flex min-w-0 items-center gap-3 rounded-md border p-2 ${preview === image ? "border-[#d52c63] bg-[#fff8fb]" : "border-[#e5e7eb] bg-white"}`}>
+        <button type="button" aria-label={`${tx("Preview")} ${index + 1}`} onClick={() => setSelected(image)} className="size-14 shrink-0 overflow-hidden rounded bg-[#f6f7f8]"><img src={image} alt="" className="h-full w-full object-contain" /></button>
+        <div className="min-w-0 flex-1"><p className="text-[13px] font-medium">{tx("Photo")} {index + 1}</p>{index === 0 ? <span className="text-[11px] font-medium text-[#24724c]">{tx("Primary")}</span> : <button type="button" onClick={() => setMain(image)} className="text-[11px] font-medium text-[#c5295b]">{tx("Set as primary")}</button>}</div>
+        <div className="flex shrink-0 gap-0.5">{[[-1, "Move earlier"], [1, "Move later"]].map(([direction, label]) => <button key={direction} type="button" title={tx(label)} aria-label={tx(label)} disabled={direction === -1 ? index === 0 : index === images.length - 1} className="grid size-8 place-items-center rounded hover:bg-[#f0f1f3] disabled:opacity-30" onClick={() => moveImage(image, direction)}><IconArrow className={`size-4 ${direction === -1 ? "-rotate-90" : "rotate-90"}`} /></button>)}<button type="button" title={tx("Remove")} aria-label={`${tx("Remove")} ${index + 1}`} className="grid size-8 place-items-center rounded text-[#bf4351] hover:bg-[#fff0f2]" onClick={() => removeImage(image)}><IconClose className="size-4" /></button></div>
+      </li>)}</ol>
+      {!images.length && <div className="border-y border-[#e5e7eb] py-8 text-center text-sm text-[#777a83]">{tx("No images")}</div>}
+      <div className="mt-5 border-t border-[#e5e7eb] pt-4 [&_label]:text-[13px] [&_input[type=file]]:w-full [&_input[type=file]]:text-[12px]"><h3 className="mb-3 text-[14px] font-semibold">{tx("Add image")}</h3><ImageField value="" onChange={addImage} /></div>
+    </div>
+  </div>
+  return <div className="min-w-0 space-y-4 [&_input]:min-w-0 [&_input]:max-w-full [&_input[type=file]]:w-full [&_input[type=file]]:text-[12px] [&_label]:block [&_label]:text-[13px] [&_label]:text-[#50525b]">
+    <PhotoPreview src={editor.image} alt={editor.title || tx("New product")} className="mx-auto block h-40 w-[130px] overflow-hidden rounded-md border border-[#edf0f2] bg-[#fff5f8] min-[761px]:h-[230px] min-[761px]:w-full"><ProductArt variant={editor.variant} tone={editor.tone} image={editor.image} alt={editor.title} /></PhotoPreview>
+    {images.length > 0 && <div className="grid grid-cols-3 gap-2">
+      {images.map((image, index) => <div key={image} className={`overflow-hidden rounded-md border bg-white ${image === editor.image ? "border-[#d52c63]" : "border-[#edf0f2]"}`}>
+        <button type="button" title={tx("Set as main photo")} aria-label={`${tx("Set as main photo")} ${index + 1}`} className="block aspect-square w-full bg-[#fff5f8]" onClick={() => setMain(image)}><img src={image} alt="" className="h-full w-full object-contain" /></button>
+        <div className="flex min-h-8 items-center justify-between gap-1 px-1"><span className="text-[11px] text-[#50525b]">{index === 0 ? tx("Primary") : index + 1}</span><div className="flex"><button type="button" disabled={index === 0} title={tx("Move earlier")} aria-label={tx("Move earlier")} className="grid size-7 place-items-center" onClick={() => moveImage(image, -1)}><IconArrow className="size-3 rotate-180" /></button><button type="button" disabled={index === images.length - 1} title={tx("Move later")} aria-label={tx("Move later")} className="grid size-7 place-items-center" onClick={() => moveImage(image, 1)}><IconArrow className="size-3" /></button></div></div>
+        <button type="button" className="w-full px-1 py-1 text-[11px] text-[#c5295b]" onClick={() => removeImage(image)}>{tx("Remove")}</button>
+      </div>)}
+    </div>}
+    <ImageField value="" onChange={addImage} hint="Add another product photo. First photo is the main catalog photo." />
+  </div>
 }
 
 function ProfileAvatar({ session }) {
@@ -300,11 +438,6 @@ function productPrice(price) {
   return Number.isFinite(Number(price)) ? `$${Number(price).toFixed(2)}` : "—"
 }
 
-function labelWord(value) {
-  if (!value) return "—"
-  return value.charAt(0).toUpperCase() + value.slice(1)
-}
-
 function formatUpdated(value) {
   if (!value) return ""
   const date = new Date(value)
@@ -312,8 +445,8 @@ function formatUpdated(value) {
   return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date)
 }
 
-function ProductTable({ items, saving, onEdit, onDelete, onStatus }) {
-  const { tx } = useI18n()
+function ProductTable({ items, options, saving, onEdit, onImages, onDelete, onStatus }) {
+  const { tx, lang } = useI18n()
   if (!items.length) return <div className="px-5 py-[60px] text-center text-[#777a83] [&_p]:mt-2"><h2>{tx("No products found")}</h2><p>{tx("There are no products in this view.")}</p></div>
   const columns = ["No.", "Photo", "Product Name", "URL", "Category", "Price", "Size", "Skin Type", "Packaging", "Color", "Status", "New Arrival", "Updated", "Actions"]
   return (
@@ -333,7 +466,7 @@ function ProductTable({ items, saving, onEdit, onDelete, onStatus }) {
           <col className="w-[88px]" />
           <col className="w-[72px]" />
           <col className="w-[12%]" />
-          <col className="w-[108px]" />
+          <col className="w-[144px]" />
         </colgroup>
         <thead>
           <tr className="bg-[#fafbfc] text-[12px] font-medium text-[#777a83]">
@@ -353,8 +486,8 @@ function ProductTable({ items, saving, onEdit, onDelete, onStatus }) {
                 <td className="px-2.5 py-3 whitespace-nowrap">{productPrice(item.price)}</td>
                 <td className="px-2.5 py-3 break-words">{item.size || "—"}</td>
                 <td className="px-2.5 py-3 break-words">{item.skinType || "—"}</td>
-                <td className="px-2.5 py-3">{tx(labelWord(item.variant))}</td>
-                <td className="px-2.5 py-3">{tx(labelWord(item.tone))}</td>
+                <td className="px-2.5 py-3 break-words">{optionLabel(options, "packaging", item.variant, lang)}</td>
+                <td className="px-2.5 py-3 break-words">{optionLabel(options, "colors", item.tone, lang)}</td>
                 <td className="px-2.5 py-3">
                   <button type="button" role="switch" aria-checked={on} aria-label={`${item.title} ${tx("Status")} ${tx(on ? "On" : "Off")}`} disabled={saving} className={`inline-flex items-center gap-1.5 rounded-full px-1 py-1 ${on ? "text-[#24724c]" : "text-[#7b6433]"}`} onClick={() => onStatus(item, !on)}>
                     <span className={`relative h-5 w-9 rounded-full ${on ? "bg-[#24724c]" : "bg-[#d5d7dc]"}`}><span className={`absolute top-0.5 size-4 rounded-full bg-white shadow ${on ? "left-4" : "left-0.5"}`} /></span>
@@ -366,7 +499,7 @@ function ProductTable({ items, saving, onEdit, onDelete, onStatus }) {
                   <span className="block font-medium break-words">{item.updatedBy || "—"}</span>
                   {formatUpdated(item.updatedAt) && <span className="mt-1 block text-[12px] text-[#777a83]">{formatUpdated(item.updatedAt)}</span>}
                 </td>
-                <td className="px-2.5 py-3"><div className="flex gap-3"><button className="font-medium text-[#4f515b]" onClick={() => onEdit(item)}>{tx("Edit")}</button><button aria-label={`${tx("Delete")} ${item.title}`} className="font-medium text-[#bf4351]" onClick={() => onDelete(item)}>{tx("Delete")}</button></div></td>
+                <td className="px-2.5 py-3"><div className="flex items-center gap-3"><button className="font-medium text-[#4f515b]" onClick={() => onEdit(item)}>{tx("Edit")}</button>{onImages && <button type="button" disabled={saving} title={tx("Manage images")} aria-label={`${tx("Manage images")} ${item.title}`} className="grid size-7 shrink-0 place-items-center text-[#4f515b] hover:text-[#c5295b]" onClick={() => onImages(item)}><IconImage className="size-4" /></button>}<button aria-label={`${tx("Delete")} ${item.title}`} className="font-medium text-[#bf4351]" onClick={() => onDelete(item)}>{tx("Delete")}</button></div></td>
               </tr>
             )
           })}

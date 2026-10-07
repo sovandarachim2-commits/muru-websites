@@ -12,7 +12,7 @@ import {
   IconShield,
   IconStar,
 } from "../components/Icons"
-import { btnClass, categories, formatPrice, perks, products, promises, reviews, settings, social } from "../data/site"
+import { btnClass, categories, formatPrice, perks, products, reviews, settings, social } from "../data/site"
 import { settingText, useI18n } from "../data/i18n"
 
 const icons = {
@@ -106,7 +106,7 @@ function MobileHero() {
       text: settings.heroDescription,
       button: settings.heroButton,
       href: "#products",
-      image: settings.promotionImage || "/images/cluster.jpg",
+      image: settings.heroImage || "/images/hero.jpg",
       alt: "Pink MURU bottles arranged together",
     },
     ...(settings.showPromotion
@@ -120,7 +120,7 @@ function MobileHero() {
             text: settings.promotionDescription,
             button: "View the Edit",
             href: "/products",
-            image: "/images/banner.jpg",
+            image: settings.promotionImage || "/images/cluster.jpg",
             alt: "Woman holding a pink bottle among cherry blossoms",
           },
         ]
@@ -132,7 +132,7 @@ function MobileHero() {
       text: "The MURU favorites made for a simple daily routine.",
       button: "Best Sellers",
       href: "#bestsellers",
-      image: settings.heroImage || "/images/hero.jpg",
+      image: "/images/banner.jpg",
       alt: "Woman with dewy skin framed by pink cherry blossoms",
     },
   ]
@@ -455,27 +455,33 @@ function BestSellers({ rowRef }) {
   )
 }
 
+const ingredientPoints = [
+  { icon: "flask", title: "ingredientPoint1Title", text: "ingredientPoint1Text" },
+  { icon: "shield", title: "ingredientPoint2Title", text: "ingredientPoint2Text" },
+  { icon: "heart", title: "ingredientPoint3Title", text: "ingredientPoint3Text" },
+]
+
 function Ingredients() {
-  const { tx } = useI18n()
+  const { lang } = useI18n()
   return (
     <section id="ingredients" className="scroll-mt-24 mx-auto grid max-w-7xl items-center gap-10 px-4 py-8 sm:px-6 lg:grid-cols-2">
       <img
-        src="/images/ingredient.jpg"
-        alt="A green leaf floating in a glass bowl of water"
+        src={settings.ingredientImage || "/images/ingredient.jpg"}
+        alt={settingText(lang, "ingredientTitle")}
         className="h-[420px] w-full rounded-[32px] object-cover"
       />
       <div>
-        <p className="text-xs font-bold tracking-[0.2em] text-muru">{tx("OUR INGREDIENT STORY")}</p>
-        <h2 className="mt-3 font-display text-4xl text-ink sm:text-5xl">{tx("Beauty You Can Trust")}</h2>
+        <p className="text-xs font-bold tracking-[0.2em] text-muru">{settingText(lang, "ingredientEyebrow")}</p>
+        <h2 className="mt-3 font-display text-4xl text-ink sm:text-5xl">{settingText(lang, "ingredientTitle")}</h2>
         <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted">
-          {tx("We carefully select high-quality ingredients to create safe, effective, and gentle products for your skin.")}
+          {settingText(lang, "ingredientDescription")}
         </p>
         <a href="#contact" className={`${btnClass} mt-6`}>
-          {tx("Learn More")}
+          {settingText(lang, "ingredientButton")}
           <IconArrow className="h-4 w-4" />
         </a>
         <ul className="mt-8 space-y-5">
-          {promises.map((item) => {
+          {ingredientPoints.map((item) => {
             const Icon = icons[item.icon]
             return (
               <li key={item.title} className="flex items-start gap-3">
@@ -483,8 +489,8 @@ function Ingredients() {
                   <Icon className="h-5 w-5" />
                 </span>
                 <div>
-                  <h3 className="font-bold text-ink">{tx(item.title)}</h3>
-                  <p className="text-sm text-muted">{tx(item.text)}</p>
+                  <h3 className="font-bold text-ink">{settingText(lang, item.title)}</h3>
+                  <p className="text-sm text-muted">{settingText(lang, item.text)}</p>
                 </div>
               </li>
             )
@@ -541,6 +547,7 @@ function Reviews({ rowRef }) {
 
 function Questions() {
   const { lang, tx } = useI18n()
+  const telegramContact = social.telegramContact || social.telegram
   return (
     <section
       id="contact"
@@ -554,22 +561,22 @@ function Questions() {
         <a href="#footer" className={btnClass}>
           {tx("Contact Us")}
         </a>
-        <a
+        {social.facebook && <a
           href={social.facebook}
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-2 rounded-full bg-[#1877f2] px-5 py-3 text-sm font-semibold text-white"
         >
           {tx("Message on Facebook")}
-        </a>
-        <a
-          href={social.telegram}
+        </a>}
+        {telegramContact && <a
+          href={telegramContact}
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-2 rounded-full bg-[#2aa8e0] px-5 py-3 text-sm font-semibold text-white"
         >
           {tx("Chat on Telegram")}
-        </a>
+        </a>}
       </div>
     </section>
   )

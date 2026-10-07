@@ -78,7 +78,7 @@ export default function Header({ activePage }) {
         </button>
 
         <a href="/" className="shrink-0 text-2xl font-extrabold text-muru">
-          {settings.brand}
+          {settings.logo ? <img src={settings.logo} alt={settings.brand} className="h-10 w-auto max-w-[140px] object-contain sm:h-12 sm:max-w-[180px]" /> : settings.brand}
         </a>
 
         <nav

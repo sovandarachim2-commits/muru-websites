@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import ProductArt from "../components/ProductArt"
+import PhotoPreview from "../components/PhotoPreview"
 import { IconArrow, IconChevron, IconFacebook, IconTelegram } from "../components/Icons"
 import { btnClass, categories, formatPrice, products, reviews, settings, social } from "../data/site"
 import { settingText, useI18n } from "../data/i18n"
@@ -180,6 +181,7 @@ function ProductCard({ product, list, soft = false }) {
 
 function ContactCta() {
   const { tx } = useI18n()
+  const telegramContact = social.telegramContact || social.telegram
   return (
     <section id="contact" className="scroll-mt-24 bg-[#fff0f5] px-4 py-12 text-center sm:px-6 sm:py-16">
       <p className="text-xs font-bold tracking-[0.22em] text-muru">{tx("CONTACT")}</p>
@@ -193,16 +195,16 @@ function ContactCta() {
         <a href="/#contact" className={btnClass}>
           {tx("Contact Us")}
         </a>
-        <a
-          href={social.telegram}
+        {telegramContact && <a
+          href={telegramContact}
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-2 rounded-full border border-petal bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:border-muru hover:text-muru"
         >
           <IconTelegram className="h-4 w-4" />
           Telegram
-        </a>
-        <a
+        </a>}
+        {social.facebook && <a
           href={social.facebook}
           target="_blank"
           rel="noreferrer"
@@ -210,7 +212,7 @@ function ContactCta() {
         >
           <IconFacebook className="h-4 w-4" />
           Facebook
-        </a>
+        </a>}
       </div>
     </section>
   )
@@ -246,6 +248,10 @@ function DetailView({ product }) {
   const { tx } = useI18n()
   const images = productImages(product)
   const [activeImage, setActiveImage] = useState(0)
+  const gesture = useRef(null)
+  const suppressPhotoClick = useRef(false)
+  const [dragOffset, setDragOffset] = useState(0)
+  const [dragging, setDragging] = useState(false)
   const [tab, setTab] = useState("Description")
   const photo = images[activeImage] || ""
   const details = [
@@ -261,6 +267,43 @@ function DetailView({ product }) {
   function showImage(next) {
     if (images.length < 2) return
     setActiveImage((next + images.length) % images.length)
+  }
+
+  function startSwipe(event) {
+    suppressPhotoClick.current = false
+    if (event.touches.length !== 1) { gesture.current = null; return }
+    const touch = event.touches[0]
+    gesture.current = { x: touch.clientX, y: touch.clientY, width: event.currentTarget.clientWidth, horizontal: false }
+  }
+
+  function moveSwipe(event) {
+    const start = gesture.current
+    if (!start || event.touches.length !== 1 || images.length < 2) return
+    const dx = event.touches[0].clientX - start.x
+    const dy = event.touches[0].clientY - start.y
+    if (!start.horizontal) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 8) return
+      if (Math.abs(dy) >= Math.abs(dx)) { gesture.current = null; return }
+      start.horizontal = true
+    }
+    suppressPhotoClick.current = true
+    setDragging(true)
+    const atEdge = (activeImage === 0 && dx > 0) || (activeImage === images.length - 1 && dx < 0)
+    setDragOffset(Math.max(-start.width, Math.min(start.width, atEdge ? dx * 0.2 : dx)))
+  }
+
+  function endSwipe(event) {
+    const start = gesture.current
+    gesture.current = null
+    setDragging(false)
+    setDragOffset(0)
+    if (!start || !event.changedTouches.length) return
+    const touch = event.changedTouches[0]
+    const dx = touch.clientX - start.x
+    const dy = touch.clientY - start.y
+    if (Math.abs(dx) < Math.min(70, start.width * 0.18) || Math.abs(dx) <= Math.abs(dy)) return
+    suppressPhotoClick.current = true
+    setActiveImage(Math.max(0, Math.min(images.length - 1, activeImage + (dx < 0 ? 1 : -1))))
   }
 
   return (
@@ -286,8 +329,14 @@ function DetailView({ product }) {
         <div className="mt-6 grid items-start gap-8 lg:grid-cols-2 lg:gap-14">
           <div>
             <div className="relative overflow-hidden rounded-2xl bg-[#f4f4f4]">
-              <div className="aspect-[4/5] sm:aspect-square">
-                <ProductArt variant={product.variant} tone={product.tone} image={photo} alt={tx(product.title)} />
+              <div className="touch-pan-y" onTouchStart={startSwipe} onTouchMove={moveSwipe} onTouchEnd={endSwipe} onTouchCancel={() => { gesture.current = null; setDragging(false); setDragOffset(0) }} onClickCapture={(event) => { if (suppressPhotoClick.current) { event.preventDefault(); event.stopPropagation(); suppressPhotoClick.current = false } }}>
+                <div className={`flex will-change-transform motion-reduce:transition-none ${dragging ? "transition-none" : "transition-transform duration-300 ease-out"}`} style={{ transform: `translate3d(calc(${-activeImage * 100}% + ${dragOffset}px), 0, 0)` }}>
+                  {(images.length ? images : [photo]).map((image, index) => <div key={image || "placeholder"} aria-hidden={index !== activeImage} inert={index !== activeImage} className="w-full shrink-0">
+                    <PhotoPreview src={image} alt={tx(product.title)} className="block aspect-[4/5] w-full select-none sm:aspect-square [&_img]:pointer-events-none">
+                      <ProductArt variant={product.variant} tone={product.tone} image={image} alt={tx(product.title)} />
+                    </PhotoPreview>
+                  </div>)}
+                </div>
               </div>
               {images.length > 1 && (
                 <>
@@ -295,7 +344,7 @@ function DetailView({ product }) {
                     type="button"
                     aria-label={tx("Previous image")}
                     onClick={() => showImage(activeImage - 1)}
-                    className="absolute top-1/2 left-3 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-md bg-white text-ink shadow-sm hover:text-muru"
+                    className="absolute top-1/2 left-3 hidden h-10 w-10 -translate-y-1/2 place-items-center rounded-md bg-white text-ink shadow-sm hover:text-muru sm:grid"
                   >
                     <IconChevron className="h-4 w-4 rotate-180" />
                   </button>
@@ -303,7 +352,7 @@ function DetailView({ product }) {
                     type="button"
                     aria-label={tx("Next image")}
                     onClick={() => showImage(activeImage + 1)}
-                    className="absolute top-1/2 right-3 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-md bg-white text-ink shadow-sm hover:text-muru"
+                    className="absolute top-1/2 right-3 hidden h-10 w-10 -translate-y-1/2 place-items-center rounded-md bg-white text-ink shadow-sm hover:text-muru sm:grid"
                   >
                     <IconChevron className="h-4 w-4" />
                   </button>
@@ -357,17 +406,17 @@ function DetailView({ product }) {
                 <dt className="inline font-semibold text-ink">{tx("Tags")}</dt>
                 <dd className="inline text-muted"> : {tags.map((tag) => tx(tag)).join(", ")}</dd>
               </div>
-              <div className="flex items-center gap-3">
+              {(social.facebook || social.telegram) && <div className="flex items-center gap-3">
                 <dt className="font-semibold text-ink">{tx("Share")}</dt>
                 <dd className="flex items-center gap-2">
-                  <a href={social.facebook} target="_blank" rel="noreferrer" aria-label={tx("Share on Facebook")} className="grid h-8 w-8 place-items-center rounded-full bg-[#f4f4f4] text-ink hover:bg-muru hover:text-white">
+                  {social.facebook && <a href={social.facebook} target="_blank" rel="noreferrer" aria-label={tx("Share on Facebook")} className="grid h-8 w-8 place-items-center rounded-full bg-[#f4f4f4] text-ink hover:bg-muru hover:text-white">
                     <IconFacebook className="h-3.5 w-3.5" />
-                  </a>
-                  <a href={social.telegram} target="_blank" rel="noreferrer" aria-label={tx("Share on Telegram")} className="grid h-8 w-8 place-items-center rounded-full bg-[#f4f4f4] text-ink hover:bg-muru hover:text-white">
+                  </a>}
+                  {social.telegram && <a href={social.telegram} target="_blank" rel="noreferrer" aria-label={tx("Share on Telegram")} className="grid h-8 w-8 place-items-center rounded-full bg-[#f4f4f4] text-ink hover:bg-muru hover:text-white">
                     <IconTelegram className="h-3.5 w-3.5" />
-                  </a>
+                  </a>}
                 </dd>
-              </div>
+              </div>}
             </dl>
           </div>
         </div>

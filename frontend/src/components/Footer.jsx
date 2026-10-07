@@ -2,21 +2,22 @@ import { infoLinks, productLinks, settings, social } from "../data/site"
 import { settingText, useI18n } from "../data/i18n"
 import { IconArrow, IconFacebook, IconInstagram, IconTelegram, IconTikTok } from "./Icons"
 
-const socials = [
-  { label: "Facebook", href: social.facebook, Icon: IconFacebook, color: "bg-[#1877f2]" },
-  { label: "Instagram", href: social.instagram, Icon: IconInstagram, color: "bg-[#c13584]" },
-  { label: "TikTok", href: social.tiktok, Icon: IconTikTok, color: "bg-black border border-white/30" },
-  { label: "Telegram", href: social.telegram, Icon: IconTelegram, color: "bg-[#0088cc]" },
-]
-
-const contact = [
-  { label: "+855 12 345 678", href: "tel:+85512345678", Icon: IconPhone },
-  { label: "info@muru.com", href: "mailto:info@muru.com", Icon: IconMail },
-  { label: "Phnom Penh, Cambodia", href: "https://maps.google.com/?q=Phnom+Penh", Icon: IconPin },
+const socialItems = [
+  { label: "Facebook", key: "facebook", Icon: IconFacebook, color: "bg-[#1877f2]" },
+  { label: "Instagram", key: "instagram", Icon: IconInstagram, color: "bg-[#c13584]" },
+  { label: "TikTok", key: "tiktok", Icon: IconTikTok, color: "bg-black border border-white/30" },
+  { label: "Telegram", key: "telegram", Icon: IconTelegram, color: "bg-[#0088cc]" },
 ]
 
 export default function Footer() {
   const { lang, tx } = useI18n()
+  const telegramContact = social.telegramContact || social.telegram
+  const socials = socialItems.flatMap(({ label, key, Icon, color }) => social[key] ? [{ label, href: social[key], Icon, color }] : [])
+  const contact = [
+    social.phone ? { label: social.phone, href: `tel:${social.phone.replace(/[^\d+]/g, "")}`, Icon: IconPhone } : null,
+    social.email ? { label: social.email, href: `mailto:${social.email}`, Icon: IconMail } : null,
+    social.address ? { label: social.address, href: `https://maps.google.com/?q=${encodeURIComponent(social.address)}`, Icon: IconPin } : null,
+  ].filter(Boolean)
   return (
     <footer id="footer" className="relative bg-[#09131D] text-white">
       <svg viewBox="0 0 1440 80" preserveAspectRatio="none" className="pointer-events-none absolute inset-x-0 bottom-full h-12 w-full text-[#f7d6e6] sm:h-16" aria-hidden="true">
@@ -30,8 +31,8 @@ export default function Footer() {
         <div className="relative z-10 mx-auto grid max-w-7xl grid-cols-2 gap-x-6 gap-y-8 px-4 py-10 sm:px-6 lg:grid-cols-[1.25fr_0.8fr_0.95fr_1.15fr] lg:gap-8 lg:py-14">
           <div className="col-span-2 lg:col-span-1">
             <a href="/" className="relative inline-block pt-5 text-3xl font-extrabold tracking-[0.16em] text-muru">
-              <MuruFlower className="absolute top-0 left-1/2 h-6 w-6 -translate-x-1/2 text-muru" />
-              {settings.brand}
+              {!settings.logo && <MuruFlower className="absolute top-0 left-1/2 h-6 w-6 -translate-x-1/2 text-muru" />}
+              {settings.logo ? <img src={settings.logo} alt={settings.brand} className="h-16 w-auto max-w-[200px] object-contain" /> : settings.brand}
             </a>
             <p className="mt-5 text-sm font-semibold text-white">{settingText(lang, "tagline")}</p>
             <p className="mt-2 max-w-[16rem] text-sm leading-6 text-white/55">
@@ -62,8 +63,8 @@ export default function Footer() {
                 </li>
               ))}
             </ul>
-            <a
-              href={social.telegram}
+            {telegramContact && <a
+              href={telegramContact}
               target="_blank"
               rel="noreferrer"
               className="mt-5 inline-flex items-center gap-2 rounded-full bg-muru px-4 py-2.5 text-sm font-semibold text-white hover:bg-muru-deep"
@@ -71,7 +72,7 @@ export default function Footer() {
               <IconTelegram className="h-4 w-4" />
               {tx("Chat on Telegram")}
               <IconArrow className="h-4 w-4" />
-            </a>
+            </a>}
           </div>
         </div>
 

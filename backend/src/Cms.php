@@ -31,6 +31,18 @@ function cms_image(mixed $value): string
     throw new InvalidArgumentException('Use a JPG, PNG or WebP image under 2 MB, or an HTTPS image URL.');
 }
 
+function cms_images(mixed $value): array
+{
+    if ($value === null || $value === '') return [];
+    if (!is_array($value) || !array_is_list($value) || count($value) > 12) throw new InvalidArgumentException('Invalid product images.');
+    $images = [];
+    foreach ($value as $image) {
+        $clean = cms_image($image);
+        if ($clean !== '' && !in_array($clean, $images, true)) $images[] = $clean;
+    }
+    return $images;
+}
+
 function cms_text(array $data, string $key, int $limit = 600, bool $required = false): string
 {
     $value = $data[$key] ?? '';
@@ -56,6 +68,25 @@ function cms_validate(array $body): array
         $names[] = mb_strtolower($title);
         $cleanCategories[] = ['title' => $title, 'text' => cms_text($category, 'text'), 'variant' => cms_text($category, 'variant', 20), 'tone' => cms_text($category, 'tone', 20), 'image' => cms_image($category['image'] ?? '')];
     }
+    $optionDefaults = ['packaging' => ['pump', 'jar', 'dropper', 'compact', 'tube', 'bottle'], 'colors' => ['pink', 'blue', 'rose', 'cream']];
+    $productOptions = null;
+    if (isset($body['productOptions'])) {
+        if (!is_array($body['productOptions'])) throw new InvalidArgumentException('Invalid product options.');
+        $productOptions = [];
+        foreach ($optionDefaults as $group => $defaults) {
+            $entries = $body['productOptions'][$group] ?? null;
+            if (!is_array($entries) || !array_is_list($entries) || count($entries) > 40) throw new InvalidArgumentException('Invalid product options.');
+            $values = [];
+            $productOptions[$group] = [];
+            foreach ($entries as $entry) {
+                if (!is_array($entry)) throw new InvalidArgumentException('Invalid product option.');
+                $value = cms_text($entry, 'value', 20, true);
+                if (!preg_match('/^[a-z0-9]+(?:-[a-z0-9]+)*$/D', $value) || in_array($value, $values, true)) throw new InvalidArgumentException('Option values must be unique lowercase words.');
+                $values[] = $value;
+                $productOptions[$group][] = ['value' => $value, 'en' => cms_text($entry, 'en', 80, true), 'km' => cms_text($entry, 'km', 80, true)];
+            }
+        }
+    }
     $slugs = []; $ids = []; $cleanProducts = [];
     foreach ($products as $product) {
         if (!is_array($product)) throw new InvalidArgumentException('Invalid product.');
@@ -70,21 +101,38 @@ function cms_validate(array $body): array
         if (!is_numeric($price) || (float) $price < 0 || (float) $price > 1000000) throw new InvalidArgumentException('Each product needs a valid price.');
         $clean['price'] = round((float) $price, 2);
         $clean['image'] = cms_image($product['image'] ?? '');
-        $clean['variant'] = in_array($product['variant'] ?? '', ['pump', 'jar', 'dropper', 'compact', 'tube', 'bottle'], true) ? $product['variant'] : 'pump';
-        $clean['tone'] = in_array($product['tone'] ?? '', ['pink', 'blue', 'rose', 'cream'], true) ? $product['tone'] : 'pink';
+        $clean['images'] = cms_images($product['images'] ?? []);
+        foreach (['variant' => 'packaging', 'tone' => 'colors'] as $field => $group) {
+            $allowed = $productOptions === null ? $optionDefaults[$group] : array_column($productOptions[$group], 'value');
+            $value = $product[$field] ?? $optionDefaults[$group][0];
+            if (!in_array($value, $allowed, true)) throw new InvalidArgumentException('Choose an existing packaging and color for every product.');
+            $clean[$field] = $value;
+        }
         $clean['status'] = ($product['status'] ?? '') === 'draft' ? 'draft' : 'published';
         $clean['isNew'] = (bool) ($product['isNew'] ?? false);
         $clean['bestSeller'] = (bool) ($product['bestSeller'] ?? false);
         $cleanProducts[] = $clean;
     }
+    $socialSource = is_array($body['social'] ?? null) ? $body['social'] : [];
     $social = [];
-    foreach (['facebook', 'instagram', 'telegram', 'tiktok'] as $key) {
-        $url = cms_text($body['social'] ?? [], $key, 2048);
-        if ($url !== '' && (!filter_var($url, FILTER_VALIDATE_URL) || !str_starts_with($url, 'https://'))) throw new InvalidArgumentException('Contact links must use HTTPS.');
+    foreach (['facebook', 'instagram', 'tiktok', 'telegram', 'telegramContact'] as $key) {
+        $url = cms_text($socialSource, $key, 2048);
+        if ($url !== '' && (!filter_var($url, FILTER_VALIDATE_URL) || !str_starts_with($url, 'https://'))) throw new InvalidArgumentException('Social links must use HTTPS.');
         $social[$key] = $url;
     }
+    if (array_key_exists('phone', $socialSource)) {
+        $phone = cms_text($socialSource, 'phone', 40);
+        if ($phone !== '' && !preg_match('/^[+0-9][0-9\s().-]{5,39}$/u', $phone)) throw new InvalidArgumentException('Enter a valid phone number.');
+        $social['phone'] = $phone;
+    }
+    if (array_key_exists('email', $socialSource)) {
+        $email = cms_text($socialSource, 'email', 180);
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) throw new InvalidArgumentException('Enter a valid email address.');
+        $social['email'] = $email;
+    }
+    if (array_key_exists('address', $socialSource)) $social['address'] = cms_text($socialSource, 'address', 200);
     $settings = [];
-    $textKeys = ['brand', 'tagline', 'heroEyebrow', 'heroTitle', 'heroAccent', 'heroDescription', 'heroButton', 'catalogTitle', 'catalogDescription', 'storyTitle', 'storyDescription', 'promotionTitle', 'promotionDescription', 'contactTitle', 'contactDescription'];
+    $textKeys = ['brand', 'tagline', 'heroEyebrow', 'heroTitle', 'heroAccent', 'heroDescription', 'heroButton', 'catalogTitle', 'catalogDescription', 'storyTitle', 'storyDescription', 'ingredientEyebrow', 'ingredientTitle', 'ingredientDescription', 'ingredientButton', 'ingredientPoint1Title', 'ingredientPoint1Text', 'ingredientPoint2Title', 'ingredientPoint2Text', 'ingredientPoint3Title', 'ingredientPoint3Text', 'promotionTitle', 'promotionDescription', 'contactTitle', 'contactDescription'];
     foreach ($textKeys as $key) {
         $settings[$key] = cms_text($body['settings'] ?? [], $key, 2000);
     }
@@ -93,13 +141,15 @@ function cms_validate(array $body): array
     $km = [];
     foreach ($textKeys as $key) $km[$key] = cms_text($kmSource, $key, 2000);
     $settings['km'] = $km;
-    foreach (['heroImage', 'storyImage', 'promotionImage'] as $key) $settings[$key] = cms_image($body['settings'][$key] ?? '');
+    foreach (['heroImage', 'storyImage', 'ingredientImage', 'promotionImage', 'logo', 'favicon'] as $key) $settings[$key] = cms_image($body['settings'][$key] ?? '');
     $settings['accentColor'] = cms_text($body['settings'] ?? [], 'accentColor', 7);
     if (!preg_match('/^#[a-fA-F0-9]{6}$/D', $settings['accentColor'])) throw new InvalidArgumentException('Invalid accent color.');
     $settings['bodyFont'] = in_array($body['settings']['bodyFont'] ?? '', ['DM Sans', 'Manrope', 'system-ui'], true) ? $body['settings']['bodyFont'] : 'DM Sans';
     $settings['showPromotion'] = (bool) ($body['settings']['showPromotion'] ?? true);
     $settings['showReviews'] = (bool) ($body['settings']['showReviews'] ?? true);
-    return ['products' => $cleanProducts, 'categories' => $cleanCategories, 'social' => $social, 'settings' => $settings];
+    $state = ['products' => $cleanProducts, 'categories' => $cleanCategories, 'social' => $social, 'settings' => $settings];
+    if ($productOptions !== null) $state['productOptions'] = $productOptions;
+    return $state;
 }
 
 function cms_private_host(?string $host): bool
@@ -332,10 +382,14 @@ function cms_route(): never
             $saved = cms_store(function (array &$data) use ($body, $state) {
                 $actor = cms_identity($_SESSION['admin']);
                 $grants = cms_access($data, $actor);
-                foreach (['products' => 'products', 'categories' => 'categories', 'settings' => 'website', 'social' => 'settings'] as $key => $permission) {
-                    if ($state[$key] !== $data['state'][$key] && !in_array($permission, $grants, true)) Response::error('Permission denied for ' . $permission . '.', 403);
+                foreach (['products' => 'products', 'productOptions' => 'products', 'categories' => 'categories', 'settings' => 'website', 'social' => 'settings'] as $key => $permission) {
+                    if (($state[$key] ?? null) !== ($data['state'][$key] ?? null) && !in_array($permission, $grants, true)) Response::error('Permission denied for ' . $permission . '.', 403);
                 }
                 if (($body['revision'] ?? -1) !== $data['revision']) throw new LogicException('Content changed in another session. Reload before saving.');
+                $previousSocial = is_array($data['state']['social'] ?? null) ? $data['state']['social'] : [];
+                foreach (['phone', 'email', 'address'] as $key) {
+                    if (!array_key_exists($key, $state['social']) && array_key_exists($key, $previousSocial)) $state['social'][$key] = $previousSocial[$key];
+                }
                 $state['products'] = cms_audit_products($state['products'], $data['state']['products'] ?? [], cms_display_name($actor));
                 $data['state'] = $state;
                 $data['revision']++;

@@ -3,6 +3,7 @@ import ProductArt from "../../components/ProductArt"
 import PhotoPreview from "../../components/PhotoPreview"
 import { IconArrow, IconClose } from "../../components/Icons"
 import { cmsRequest } from "../../data/cms"
+import { settings as siteDefaults } from "../../data/site"
 import { translate, useI18n } from "../../data/i18n"
 
 export function ErrorCard({ message, onClose }) {
@@ -53,10 +54,61 @@ const primary = "min-h-[42px] rounded-md bg-[#d52c63] px-5 py-2 text-sm font-sem
 const fields = "grid min-w-0 gap-4 [&_label]:grid [&_label]:min-w-0 [&_label]:gap-2 [&_label]:text-[13px]"
 
 const imageHints = {
-  products: "Recommended size: 1000 × 1000 px (square). JPG, PNG, or WebP under 2 MB.",
-  categories: "Recommended size: 800 × 800 px (square). JPG, PNG, or WebP under 2 MB.",
-  website: "Recommended size: 1600 × 900 px. JPG, PNG, or WebP under 2 MB.",
-  profiles: "Recommended size: 400 × 400 px (square). JPG, PNG, or WebP under 2 MB.",
+  products: "Recommended size: 1000 × 1000 px (square). JPG, PNG, or WebP. Larger photos are compressed automatically.",
+  categories: "Recommended size: 800 × 800 px (square). JPG, PNG, or WebP. Larger photos are compressed automatically.",
+  website: "Recommended size: 1600 × 900 px. JPG, PNG, or WebP. Larger photos are compressed automatically.",
+  profiles: "Recommended size: 400 × 400 px (square). JPG, PNG, or WebP. Larger photos are compressed automatically.",
+}
+
+const maxUploadBytes = 2 * 1024 * 1024
+
+function readFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(new Error("The image could not be read."))
+    reader.readAsDataURL(file)
+  })
+}
+
+function canvasBlob(canvas, quality) {
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality))
+}
+
+export async function prepareImageUpload(file) {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("Choose a JPG, PNG or WebP image.")
+  if (file.size <= maxUploadBytes) return readFile(file)
+  if (file.size > 25 * 1024 * 1024) throw new Error("Choose an image under 25 MB.")
+  const bitmap = await createImageBitmap(file)
+  try {
+    const canvas = document.createElement("canvas")
+    const context = canvas.getContext("2d", { alpha: false })
+    if (!context) throw new Error("The image could not be read.")
+    let width = bitmap.width
+    let height = bitmap.height
+    const fitted = Math.min(1, 2560 / Math.max(width, height))
+    width = Math.max(1, Math.round(width * fitted))
+    height = Math.max(1, Math.round(height * fitted))
+    let quality = 0.85
+    let blob = null
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      canvas.width = width
+      canvas.height = height
+      context.fillStyle = "#ffffff"
+      context.fillRect(0, 0, width, height)
+      context.drawImage(bitmap, 0, 0, width, height)
+      blob = await canvasBlob(canvas, quality)
+      if (blob && blob.size <= maxUploadBytes) return readFile(blob)
+      if (quality > 0.5) quality = Math.round((quality - 0.1) * 10) / 10
+      else {
+        width = Math.max(1, Math.round(width * 0.85))
+        height = Math.max(1, Math.round(height * 0.85))
+      }
+    }
+    throw new Error("The image is still too large after compression.")
+  } finally {
+    bitmap.close()
+  }
 }
 
 export function ImageField({ value = "", onChange, folder = "products", hint }) {
@@ -66,24 +118,14 @@ export function ImageField({ value = "", onChange, folder = "products", hint }) 
   async function upload(event) {
     const file = event.target.files?.[0]
     if (!file) return
-    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 2097152) {
-      setError("Choose a JPG, PNG or WebP image under 2 MB.")
-    } else {
-      try {
-        setUploading(true)
-        const data = await new Promise((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result)
-          reader.onerror = reject
-          reader.readAsDataURL(file)
-        })
-        const result = await cmsRequest("upload", { image: data, folder }, 60000)
-        onChange(result.url)
-        setError("")
-      } catch (failure) { setError(failure.message || "The image could not be uploaded.") }
-      finally { setUploading(false) }
-    }
-    event.target.value = ""
+    try {
+      setUploading(true)
+      setError("")
+      const data = await prepareImageUpload(file)
+      const result = await cmsRequest("upload", { image: data, folder }, 60000)
+      onChange(result.url)
+    } catch (failure) { setError(failure.message || "The image could not be uploaded.") }
+    finally { setUploading(false); event.target.value = "" }
   }
   return <div className={`${fields} mt-4`}>
     <label>{tx("Photo")}<input type="file" disabled={uploading} accept="image/jpeg,image/png,image/webp" onChange={upload} className="w-full min-w-0 max-w-full text-xs file:mr-2 file:rounded file:border-0 file:bg-[#f1f2f5] file:px-3 file:py-2" /></label>
@@ -91,7 +133,7 @@ export function ImageField({ value = "", onChange, folder = "products", hint }) 
     {uploading && <p role="status" className="text-sm">{tx("Uploading...")}</p>}
     <label>{tx("Image URL")}<input className="min-w-0 max-w-full" value={value.startsWith("data:") ? "" : value} placeholder={value.startsWith("data:") ? "Uploaded photo selected" : "https://..."} onChange={(event) => onChange(event.target.value)} /></label>
     {value && <button type="button" className="justify-self-start text-[13px] text-[#c5295b]" onClick={() => onChange("")}>{tx("Remove photo")}</button>}
-    {error && <ErrorCard message={error} onClose={() => setError("")} />}
+    {error && <ErrorCard message={tx(error)} onClose={() => setError("")} />}
   </div>
 }
 
@@ -198,10 +240,11 @@ export function AdminFormDialog({ title, busy, onClose, children }) {
 
 const sections = [
   { title: "Brand & appearance", fields: [["brand", "Brand name"], ["tagline", "Footer tagline"]] },
-  { title: "Homepage hero", fields: [["heroEyebrow", "Label"], ["heroTitle", "Headline"], ["heroAccent", "Highlighted headline"], ["heroDescription", "Description", "textarea"], ["heroButton", "Button text"]], image: "heroImage", imageHint: "Recommended size: 1600 × 900 px (wide banner). JPG, PNG, or WebP under 2 MB." },
+  { title: "Homepage hero", fields: [["heroEyebrow", "Label"], ["heroTitle", "Headline"], ["heroAccent", "Highlighted headline"], ["heroDescription", "Description", "textarea"], ["heroButton", "Button text"]], image: "heroImage", fallback: "/images/hero.jpg", imageHint: "Recommended size: 1600 × 900 px (wide banner). JPG, PNG, or WebP. Larger photos are compressed automatically." },
   { title: "Product catalog", fields: [["catalogTitle", "Heading"], ["catalogDescription", "Description", "textarea"]] },
-  { title: "Brand story", fields: [["storyTitle", "Heading"], ["storyDescription", "Description", "textarea"]], image: "storyImage", imageHint: "Recommended size: 1200 × 800 px. JPG, PNG, or WebP under 2 MB." },
-  { title: "Promotion", fields: [["promotionTitle", "Heading"], ["promotionDescription", "Description", "textarea"]], image: "promotionImage", imageHint: "Recommended size: 1600 × 800 px (wide banner). JPG, PNG, or WebP under 2 MB." },
+  { title: "Brand story", fields: [["storyTitle", "Heading"], ["storyDescription", "Description", "textarea"]], image: "storyImage", fallback: "/images/banner.jpg", imageHint: "Recommended size: 1200 × 800 px. JPG, PNG, or WebP. Larger photos are compressed automatically." },
+  { title: "Ingredient story", fields: [["ingredientEyebrow", "Label"], ["ingredientTitle", "Heading"], ["ingredientDescription", "Description", "textarea"], ["ingredientButton", "Button text"], ["ingredientPoint1Title", "Point 1 heading"], ["ingredientPoint1Text", "Point 1 text"], ["ingredientPoint2Title", "Point 2 heading"], ["ingredientPoint2Text", "Point 2 text"], ["ingredientPoint3Title", "Point 3 heading"], ["ingredientPoint3Text", "Point 3 text"]], image: "ingredientImage", fallback: "/images/ingredient.jpg", imageHint: "Recommended size: 1200 × 1400 px. JPG, PNG, or WebP. Larger photos are compressed automatically." },
+  { title: "Promotion", fields: [["promotionTitle", "Heading"], ["promotionDescription", "Description", "textarea"]], image: "promotionImage", fallback: "/images/cluster.jpg", imageHint: "Recommended size: 1600 × 800 px (wide banner). JPG, PNG, or WebP. Larger photos are compressed automatically." },
   { title: "Contact section", fields: [["contactTitle", "Heading"], ["contactDescription", "Description", "textarea"]] },
 ]
 
@@ -214,7 +257,14 @@ function khmerValue(values, key) {
 }
 
 export function WebsiteEditor({ initial, onSave, canEditWebsite = true, contactForm }) {
-  const [values, setValues] = useState({ ...initial, km: { ...(initial.km || {}) } })
+  const { tx } = useI18n()
+  const [values, setValues] = useState(() => {
+    const seeded = { ...initial, km: { ...(initial.km || {}) } }
+    for (const key of ["ingredientEyebrow", "ingredientTitle", "ingredientDescription", "ingredientButton", "ingredientPoint1Title", "ingredientPoint1Text", "ingredientPoint2Title", "ingredientPoint2Text", "ingredientPoint3Title", "ingredientPoint3Text"]) {
+      if (typeof seeded[key] !== "string") seeded[key] = siteDefaults[key]
+    }
+    return seeded
+  })
   const [section, setSection] = useState(canEditWebsite ? 0 : sections.length)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -231,21 +281,23 @@ export function WebsiteEditor({ initial, onSave, canEditWebsite = true, contactF
     finally { setBusy(false) }
   }
   function englishField(key, label, type) {
-    return <label>{label} (EN){type === "textarea" ? <textarea rows={4} maxLength={2000} value={values[key]} onChange={(event) => update(key, event.target.value)} /> : <input required maxLength={key === "brand" ? 24 : 160} value={values[key]} onChange={(event) => update(key, event.target.value)} />}</label>
+    return <label>{tx(label)} ({tx("English")}){type === "textarea" ? <textarea lang="en" rows={4} maxLength={2000} value={values[key]} onChange={(event) => update(key, event.target.value)} /> : <input lang="en" required maxLength={key === "brand" ? 24 : 160} value={values[key]} onChange={(event) => update(key, event.target.value)} />}</label>
   }
-  return <div className="grid gap-8 min-[761px]:grid-cols-[190px_minmax(0,1fr)]"><div role="tablist" aria-label="Website sections" className="flex gap-2 overflow-auto min-[761px]:flex-col">{menu.map((item) => <button key={item.title} role="tab" aria-selected={item.index === section} className={`shrink-0 rounded-md p-3 text-left text-[13px] ${item.index === section ? "bg-[#fff0f5] font-semibold text-[#b52958]" : ""}`} onClick={() => setSection(item.index)}>{item.title}</button>)}</div>
-    {section === sections.length ? contactForm : <form onSubmit={save} className="max-w-[920px]"><h2 className="mb-6 text-lg font-semibold">{current.title}</h2><fieldset disabled={busy} className={fields}>
-      {current.fields.map(([key, label, type]) => <div key={key} className="grid gap-3 min-[601px]:grid-cols-2">{englishField(key, label, type)}<label>{label} (KH){type === "textarea" ? <textarea rows={4} maxLength={2000} value={khmerValue(values, key)} onChange={(event) => updateKhmer(key, event.target.value)} /> : <input maxLength={2000} value={khmerValue(values, key)} onChange={(event) => updateKhmer(key, event.target.value)} />}</label></div>)}
-      {section === 0 && <><label>Accent color<input type="color" className="h-10 w-16" value={values.accentColor} onChange={(event) => update("accentColor", event.target.value)} /></label><label>Body font<select value={values.bodyFont} onChange={(event) => update("bodyFont", event.target.value)}>{["DM Sans", "Manrope", "system-ui"].map((font) => <option key={font}>{font}</option>)}</select></label><div className="flex flex-wrap gap-4 [&_label]:flex [&_label]:items-center">{[["showPromotion", "Show promotion"], ["showReviews", "Show customer reviews"]].map(([key, label]) => <label key={key}><input type="checkbox" checked={values[key]} onChange={(event) => update(key, event.target.checked)} />{label}</label>)}</div></>}
-      {current.image && <><PhotoPreview src={values[current.image] || "/images/cluster.jpg"} alt={current.title} className="block w-full"><img className="aspect-video w-full rounded-md object-cover" src={values[current.image] || "/images/cluster.jpg"} alt={current.title} /></PhotoPreview><ImageField folder="website" hint={current.imageHint} value={values[current.image]} onChange={(image) => update(current.image, image)} /></>}
-    </fieldset>{error && <ErrorCard message={error} onClose={() => setError("")} />}<button disabled={busy} className={`${primary} mt-5`}>{busy ? "Saving..." : "Save website"}</button></form>}
+  return <div className="grid gap-8 min-[761px]:grid-cols-[190px_minmax(0,1fr)]"><div role="tablist" aria-label={tx("Website sections")} className="flex gap-2 overflow-auto min-[761px]:flex-col">{menu.map((item) => <button key={item.title} role="tab" aria-selected={item.index === section} className={`shrink-0 rounded-md p-3 text-left text-[13px] ${item.index === section ? "bg-[#fff0f5] font-semibold text-[#b52958]" : ""}`} onClick={() => setSection(item.index)}>{tx(item.title)}</button>)}</div>
+    {section === sections.length ? contactForm : <form onSubmit={save} className="max-w-[920px]"><h2 className="mb-6 text-lg font-semibold">{tx(current.title)}</h2><fieldset disabled={busy} className={fields}>
+      {current.image && <><PhotoPreview src={values[current.image] || current.fallback} alt={current.title} className="block w-full"><img className="aspect-video w-full rounded-md object-cover" src={values[current.image] || current.fallback} alt={current.title} /></PhotoPreview><ImageField folder="website" hint={current.imageHint} value={values[current.image]} onChange={(image) => update(current.image, image)} /></>}
+      {current.fields.map(([key, label, type]) => <div key={key} className="grid gap-3 min-[601px]:grid-cols-2">{englishField(key, label, type)}<label>{tx(label)} ({tx("Khmer")}){type === "textarea" ? <textarea lang="km" rows={4} maxLength={2000} value={khmerValue(values, key)} onChange={(event) => updateKhmer(key, event.target.value)} /> : <input lang="km" maxLength={2000} value={khmerValue(values, key)} onChange={(event) => updateKhmer(key, event.target.value)} />}</label></div>)}
+      {section === 0 && <><label>{tx("Accent color")}<input type="color" className="h-10 w-16" value={values.accentColor} onChange={(event) => update("accentColor", event.target.value)} /></label><label>{tx("Body font")}<select value={values.bodyFont} onChange={(event) => update("bodyFont", event.target.value)}>{["DM Sans", "Manrope", "system-ui"].map((font) => <option key={font}>{font}</option>)}</select></label><div className="flex flex-wrap gap-4 [&_label]:flex [&_label]:items-center">{[["showPromotion", "Show promotion"], ["showReviews", "Show customer reviews"]].map(([key, label]) => <label key={key}><input type="checkbox" checked={values[key]} onChange={(event) => update(key, event.target.checked)} />{tx(label)}</label>)}</div></>}
+    </fieldset>{error && <ErrorCard message={tx(error)} onClose={() => setError("")} />}<button disabled={busy} className={`${primary} mt-5`}>{tx(busy ? "Saving..." : "Save website")}</button></form>}
   </div>
 }
 
 export function AccountSettings() {
+  const { tx } = useI18n()
   const [error, setError] = useState("")
   const [message, setMessage] = useState("")
   const [busy, setBusy] = useState(false)
+  const [visible, setVisible] = useState(false)
   async function save(event) {
     event.preventDefault()
     const form = event.currentTarget
@@ -254,19 +306,49 @@ export function AccountSettings() {
     setMessage("")
     if (data.get("password") !== data.get("confirm")) { setError("New passwords do not match."); return }
     setBusy(true)
-    try { await cmsRequest("password", { currentPassword: data.get("currentPassword"), password: data.get("password") }); form.reset(); setMessage("Password updated.") }
+    try { await cmsRequest("password", { currentPassword: data.get("currentPassword"), password: data.get("password") }); form.reset(); setVisible(false); setMessage("Password updated.") }
     catch (failure) { setError(failure.message) }
     finally { setBusy(false) }
   }
-  return <form onSubmit={save} className="mt-12 max-w-[600px] border-t border-[#dfe1e6] pt-8"><h2 className="mb-6 text-lg font-semibold">Change password</h2><fieldset disabled={busy} className={fields}><label>Current password<input name="currentPassword" type="password" autoComplete="current-password" required /></label><label>New password<input name="password" type="password" minLength={8} maxLength={256} autoComplete="new-password" required /></label><label>Confirm password<input name="confirm" type="password" minLength={8} maxLength={256} autoComplete="new-password" required /></label></fieldset>{error && <ErrorCard message={error} onClose={() => setError("")} />}{message && <p role="status" className="mt-4 text-green-700">{message}</p>}<button disabled={busy} className={`${primary} mt-5`}>{busy ? "Saving..." : "Update password"}</button></form>
+  return <form onSubmit={save} className="mt-8 border-t border-[#e5e7eb] pt-6">
+    <div className="mb-4 flex items-center justify-between gap-3">
+      <h2 className="text-lg font-semibold">{tx("Change password")}</h2>
+      <button type="button" className="text-[13px] font-medium text-[#777a83]" onClick={() => setVisible((current) => !current)}>{visible ? tx("Hide password") : tx("Show password")}</button>
+    </div>
+    <fieldset disabled={busy} className={fields}>
+      <label>{tx("Current password")}<input name="currentPassword" type={visible ? "text" : "password"} autoComplete="current-password" required /></label>
+      <label>{tx("New password")}<input name="password" type={visible ? "text" : "password"} minLength={8} maxLength={256} autoComplete="new-password" required /></label>
+      <label>{tx("Confirm password")}<input name="confirm" type={visible ? "text" : "password"} minLength={8} maxLength={256} autoComplete="new-password" required /></label>
+    </fieldset>
+    <p className="mt-2 text-[12px] text-[#777a83]">{tx("At least 8 characters.")}</p>
+    {error && <ErrorCard message={tx(error)} onClose={() => setError("")} />}
+    {message && <p role="status" className="mt-4 text-green-700">{tx(message)}</p>}
+    <button disabled={busy} className={`${primary} mt-4`}>{busy ? tx("Saving...") : tx("Update password")}</button>
+  </form>
 }
 
 export function ProfileSettings({ session, onSaved }) {
   const { tx } = useI18n()
+  const fileRef = useRef(null)
   const [values, setValues] = useState({ name: session.name || "", username: session.username || "", image: session.image || "" })
   const [error, setError] = useState("")
   const [message, setMessage] = useState("")
   const [busy, setBusy] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const initial = (session.name || session.email || "A").charAt(0).toUpperCase()
+  async function upload(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ""
+    if (!file) return
+    try {
+      setUploading(true)
+      setError("")
+      const data = await prepareImageUpload(file)
+      const result = await cmsRequest("upload", { image: data, folder: "profiles" }, 60000)
+      setValues((current) => ({ ...current, image: result.url }))
+    } catch (failure) { setError(failure.message || "The image could not be uploaded.") }
+    finally { setUploading(false) }
+  }
   async function save(event) {
     event.preventDefault()
     setBusy(true)
@@ -279,27 +361,32 @@ export function ProfileSettings({ session, onSaved }) {
     } catch (failure) { setError(failure.message) }
     finally { setBusy(false) }
   }
-  return <section className="max-w-[720px]">
-    <div className="mb-6 border-b border-[#e5e7eb] pb-5">
-      <div className="flex flex-wrap items-center gap-4">
-        {values.image ? <PhotoPreview src={values.image} alt="Profile photo" className="size-14 shrink-0"><img src={values.image} alt="Profile photo" className="size-14 rounded-full object-cover" /></PhotoPreview> : <div className="grid size-14 shrink-0 place-items-center rounded-full bg-[#fff0f5] text-xl font-semibold text-[#c5295b]">{(session.name || session.email || "A").charAt(0).toUpperCase()}</div>}
-        <div className="min-w-0">
-          <h2 className="break-words text-lg font-semibold">{session.name || tx("Admin")}</h2>
-          <p className="mt-1 break-words text-sm text-[#777a83]">{session.email}</p>
-          <p className="mt-1 text-xs font-medium uppercase text-[#b52958]">{session.role === "owner" ? tx("Owner") : tx("Team member")}</p>
-        </div>
+  return <section>
+    <div className="flex items-center gap-4">
+      <button type="button" className="relative shrink-0 rounded-full" aria-label={tx("Change photo")} disabled={uploading} onClick={() => fileRef.current?.click()}>
+        {values.image ? <PhotoPreview src={values.image} alt="" className="size-16"><img src={values.image} alt="" className="size-16 rounded-full object-cover" /></PhotoPreview> : <span className="grid size-16 place-items-center rounded-full bg-[#fff0f5] text-xl font-semibold text-[#b52958]">{initial}</span>}
+      </button>
+      <div className="min-w-0">
+        <h2 className="break-words text-lg font-semibold">{values.name || tx("Admin")}</h2>
+        <p className="mt-0.5 break-words text-sm text-[#777a83]">{session.email}</p>
+        <p className="mt-2 inline-flex rounded-full bg-[#fff0f5] px-2.5 py-0.5 text-[11px] font-semibold text-[#b52958]">{session.role === "owner" ? tx("Owner") : tx("Team member")}</p>
       </div>
     </div>
-    <form onSubmit={save}>
-      <fieldset disabled={busy} className={fields}>
-        <ImageField folder="profiles" value={values.image} onChange={(image) => setValues({ ...values, image })} />
-        <label>{tx("Display name")}<input maxLength={80} value={values.name} onChange={(event) => setValues({ ...values, name: event.target.value })} /></label>
-        <label>{tx("Username")}<input required minLength={3} maxLength={40} pattern="[a-zA-Z0-9][a-zA-Z0-9._-]{2,39}" value={values.username} onChange={(event) => setValues({ ...values, username: event.target.value })} /></label>
+    <form onSubmit={save} className="mt-6">
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={upload} />
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="button" className="inline-flex min-h-9 items-center rounded-md border border-[#dcdfe4] bg-white px-3 text-[13px] font-medium" disabled={uploading || busy} onClick={() => fileRef.current?.click()}>{uploading ? tx("Uploading...") : tx("Change photo")}</button>
+        {values.image && <button type="button" className="text-[13px] font-medium text-[#c5295b]" disabled={uploading || busy} onClick={() => setValues((current) => ({ ...current, image: "" }))}>{tx("Remove photo")}</button>}
+      </div>
+      <p className="mt-2 text-[12px] leading-5 text-[#777a83]">{tx(imageHints.profiles)}</p>
+      <fieldset disabled={busy || uploading} className={`${fields} mt-5`}>
+        <label>{tx("Display name")}<input maxLength={80} value={values.name} onChange={(event) => setValues((current) => ({ ...current, name: event.target.value }))} /></label>
+        <label>{tx("Username")}<input required minLength={3} maxLength={40} pattern="[a-zA-Z0-9][a-zA-Z0-9._-]{2,39}" value={values.username} onChange={(event) => setValues((current) => ({ ...current, username: event.target.value }))} /></label>
         <label>{tx("Email")}<input value={session.email || ""} disabled readOnly /></label>
       </fieldset>
-      {error && <ErrorCard message={error} onClose={() => setError("")} />}
+      {error && <ErrorCard message={tx(error)} onClose={() => setError("")} />}
       {message && <p role="status" className="mt-4 text-green-700">{message}</p>}
-      <button disabled={busy} className={`${primary} mt-5`}>{busy ? "Saving..." : tx("Save profile")}</button>
+      <button disabled={busy || uploading} className={`${primary} mt-5`}>{busy ? tx("Saving...") : tx("Save profile")}</button>
     </form>
   </section>
 }
