@@ -12,7 +12,7 @@ import {
   IconShield,
   IconStar,
 } from "../components/Icons"
-import { btnClass, categories, formatPrice, perks, products, reviews, settings, social } from "../data/site"
+import { btnClass, categories, formatPrice, perks, products, promotionBanners, reviews, settings, social } from "../data/site"
 import { settingText, useI18n } from "../data/i18n"
 
 const icons = {
@@ -120,7 +120,7 @@ function MobileHero() {
             text: settings.promotionDescription,
             button: "View the Edit",
             href: "/products",
-            image: settings.promotionImage || "/images/cluster.jpg",
+            image: promotionBanners()[0] || "/images/cluster.jpg",
             alt: "Woman holding a pink bottle among cherry blossoms",
           },
         ]
@@ -212,9 +212,6 @@ function DesktopHero() {
           className="absolute inset-0 h-full w-full object-cover object-[68%_18%]"
         />
         <div className="absolute inset-0 bg-[linear-gradient(100deg,#fff7f9_0%,rgba(255,247,249,0.94)_36%,rgba(255,247,249,0.4)_70%,rgba(255,247,249,0.16)_100%)]" />
-        <p className="pointer-events-none absolute top-6 right-6 z-10 hidden font-script text-4xl text-muru drop-shadow-sm md:block lg:top-8 lg:right-8 lg:text-5xl">
-          {tx("Glow Your Way")}
-        </p>
         <div className="relative z-10 flex max-w-xl flex-col justify-center px-5 py-14 sm:px-10 sm:py-16 lg:min-h-[560px] lg:px-14 lg:pb-44">
           <p className="text-xs font-bold tracking-[0.22em] text-muru">{settingText(lang, "heroEyebrow")}</p>
           <h1 className="mt-4 font-display text-4xl leading-[1.05] text-ink sm:text-5xl lg:text-6xl">
@@ -377,11 +374,11 @@ function Story() {
   const { lang, tx } = useI18n()
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-6">
-      <div className="grid overflow-hidden rounded-[32px] bg-[#ffe4ef] lg:h-[440px] lg:grid-cols-[1fr_1.05fr_0.9fr]">
+      <div className="grid overflow-hidden rounded-[32px] bg-[#ffe4ef] lg:grid-cols-[1fr_1.05fr_0.9fr]">
         <img
           src={settings.storyImage || "/images/banner.jpg"}
           alt="Woman holding a pink bottle among cherry blossoms"
-          className="h-72 w-full object-cover lg:h-full lg:min-h-0"
+          className="aspect-[3/4] h-auto w-full object-cover"
         />
         <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
           <p className="text-xs font-bold tracking-[0.2em] text-muru">{tx("BEAUTY BEYOND SKIN")}</p>
@@ -397,9 +394,9 @@ function Story() {
           </a>
         </div>
         <img
-          src="/images/cluster.jpg"
-          alt="A set of pink MURU skincare containers"
-          className="h-72 w-full object-cover lg:h-full lg:min-h-0"
+          src={settings.storySecondImage || "/images/cluster.jpg"}
+          alt={settingText(lang, "storyTitle") || "MURU collection"}
+          className="aspect-[3/4] h-auto w-full object-cover"
         />
       </div>
     </div>
@@ -408,6 +405,33 @@ function Story() {
 
 function Promotion() {
   const { lang, tx } = useI18n()
+  const images = promotionBanners()
+  const banners = images.length ? images : ["/images/cluster.jpg"]
+  const rowRef = useRef(null)
+  const [active, setActive] = useState(0)
+  const title = settingText(lang, "promotionTitle")
+
+  function show(index) {
+    const row = rowRef.current
+    const slides = row?.querySelectorAll("[data-slide]")
+    const slide = slides?.[index]
+    const first = slides?.[0]
+    if (!row || !slide || !first) return
+    row.scrollTo({ left: slide.offsetLeft - first.offsetLeft, behavior: "smooth" })
+  }
+
+  function sync(event) {
+    const row = event.currentTarget
+    const cards = [...row.querySelectorAll("[data-slide]")]
+    const rowBox = row.getBoundingClientRect()
+    const middle = rowBox.left + rowBox.width / 2
+    const next = cards.findIndex((card) => {
+      const box = card.getBoundingClientRect()
+      return middle >= box.left && middle < box.right
+    })
+    if (next >= 0) setActive((current) => (current === next ? current : next))
+  }
+
   return (
     <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -422,13 +446,28 @@ function Promotion() {
           <IconChevron className="h-4 w-4" />
         </a>
       </div>
-      <a href="/products" className="block overflow-hidden rounded-[28px]">
-        <img
-          src={settings.promotionImage || "/images/cluster.jpg"}
-          alt={settingText(lang, "promotionTitle")}
-          className="aspect-[16/10] w-full object-cover sm:aspect-[2.2/1]"
-        />
-      </a>
+      <div className="relative">
+        <div ref={rowRef} onScroll={sync} className="no-scrollbar flex snap-x snap-mandatory overflow-x-auto rounded-[28px]" aria-roledescription="carousel" aria-label={tx("Promotions")}>
+          {banners.map((src, index) => (
+            <a key={`${index}-${src}`} href="/products" data-slide className="block w-full shrink-0 snap-start overflow-hidden">
+              <img src={src} alt={title ? `${title} ${index + 1}` : ""} className="block h-auto w-full" />
+            </a>
+          ))}
+        </div>
+        {banners.length > 1 && <>
+          <button type="button" aria-label={tx("Previous")} disabled={active === 0} onClick={() => show(active - 1)} className="absolute top-1/2 left-4 z-10 hidden h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/95 text-ink shadow-md transition hover:text-muru disabled:opacity-40 lg:grid">
+            <IconChevron className="h-5 w-5 rotate-180" />
+          </button>
+          <button type="button" aria-label={tx("Next")} disabled={active === banners.length - 1} onClick={() => show(active + 1)} className="absolute top-1/2 right-4 z-10 hidden h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/95 text-ink shadow-md transition hover:text-muru disabled:opacity-40 lg:grid">
+            <IconChevron className="h-5 w-5" />
+          </button>
+          <div className="mt-3 flex justify-center gap-1.5">
+            {banners.map((src, index) => (
+              <button key={`${index}-${src}-dot`} type="button" aria-label={`${tx("Photo")} ${index + 1}`} aria-current={index === active ? "true" : undefined} onClick={() => show(index)} className={`h-1.5 rounded-full transition ${index === active ? "w-5 bg-muru" : "w-1.5 bg-muru/30"}`} />
+            ))}
+          </div>
+        </>}
+      </div>
     </section>
   )
 }
@@ -468,7 +507,7 @@ function Ingredients() {
       <img
         src={settings.ingredientImage || "/images/ingredient.jpg"}
         alt={settingText(lang, "ingredientTitle")}
-        className="h-[420px] w-full rounded-[32px] object-cover"
+        className="aspect-[4/3] h-auto w-full rounded-[32px] object-cover"
       />
       <div>
         <p className="text-xs font-bold tracking-[0.2em] text-muru">{settingText(lang, "ingredientEyebrow")}</p>

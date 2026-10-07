@@ -4,6 +4,7 @@ import { settings } from "./site"
 const STORAGE_KEY = "muru-lang"
 
 const phrases = {
+  "Second image": "រូបភាពទីពីរ",
   "Brand & appearance": "ម៉ាក និងរូបរាង",
   "Homepage hero": "ផ្នែកដើមទំព័រមុខ",
   "Product catalog": "បញ្ជីផលិតផល",
@@ -99,7 +100,6 @@ const phrases = {
   "Loved by thousands of customers": "អតិថិជនរាប់ពាន់នាក់ចូលចិត្ត",
   "Customer Support": "សេវាអតិថិជន",
   "We're always here for you": "យើងនៅទីនេះជានិច្ចដើម្បីជួយអ្នក",
-  "Glow Your Way": "ភ្លឺតាមរបៀបរបស់អ្នក",
   "Best Sellers": "លក់ដាច់បំផុត",
   "BEST SELLERS": "លក់ដាច់បំផុត",
   PROMOTION: "ប្រូម៉ូសិន",
@@ -329,10 +329,13 @@ const phrases = {
   "Recommended size: 1000 × 1000 px (square). JPG, PNG, or WebP. Larger photos are compressed automatically.": "ទំហំណែនាំ៖ 1000 × 1000 px (ការ៉េ)។ JPG, PNG ឬ WebP។ រូបធំជាង 2 MB នឹងត្រូវបង្រួមដោយស្វ័យប្រវត្តិ។",
   "Recommended size: 800 × 800 px (square). JPG, PNG, or WebP. Larger photos are compressed automatically.": "ទំហំណែនាំ៖ 800 × 800 px (ការ៉េ)។ JPG, PNG ឬ WebP។ រូបធំជាង 2 MB នឹងត្រូវបង្រួមដោយស្វ័យប្រវត្តិ។",
   "Recommended size: 1600 × 900 px. JPG, PNG, or WebP. Larger photos are compressed automatically.": "ទំហំណែនាំ៖ 1600 × 900 px។ JPG, PNG ឬ WebP។ រូបធំជាង 2 MB នឹងត្រូវបង្រួមដោយស្វ័យប្រវត្តិ។",
-  "Recommended size: 1600 × 900 px (wide banner). JPG, PNG, or WebP. Larger photos are compressed automatically.": "ទំហំណែនាំ៖ 1600 × 900 px (បដាទទឹង)។ JPG, PNG ឬ WebP។ រូបធំជាង 2 MB នឹងត្រូវបង្រួមដោយស្វ័យប្រវត្តិ។",
-  "Recommended size: 1200 × 800 px. JPG, PNG, or WebP. Larger photos are compressed automatically.": "ទំហំណែនាំ៖ 1200 × 800 px។ JPG, PNG ឬ WebP។ រូបធំជាង 2 MB នឹងត្រូវបង្រួមដោយស្វ័យប្រវត្តិ។",
-  "Recommended size: 1200 × 1400 px. JPG, PNG, or WebP. Larger photos are compressed automatically.": "ទំហំណែនាំ៖ 1200 × 1400 px។ JPG, PNG ឬ WebP។ រូបធំជាង 2 MB នឹងត្រូវបង្រួមដោយស្វ័យប្រវត្តិ។",
-  "Recommended size: 1600 × 800 px (wide banner). JPG, PNG, or WebP. Larger photos are compressed automatically.": "ទំហំណែនាំ៖ 1600 × 800 px (បដាទទឹង)។ JPG, PNG ឬ WebP។ រូបធំជាង 2 MB នឹងត្រូវបង្រួមដោយស្វ័យប្រវត្តិ។",
+  "Same 16:9 crop as the homepage hero. Recommended size: 1600 × 900 px. JPG, PNG, or WebP. Larger photos are compressed automatically.": "ចំណុចកាត់ 16:9 ដូចបដាទំព័រដើម។ ទំហំណែនាំ៖ 1600 × 900 px។ JPG, PNG ឬ WebP។ រូបធំជាង 2 MB នឹងត្រូវបង្រួមដោយស្វ័យប្រវត្តិ។",
+  "Same 3:4 crop as the homepage story photos. Recommended size: 900 × 1200 px. JPG, PNG, or WebP. Larger photos are compressed automatically.": "ចំណុចកាត់ 3:4 ដូចរូបរឿងរ៉ាវទំព័រដើម។ ទំហំណែនាំ៖ 900 × 1200 px។ JPG, PNG ឬ WebP។ រូបធំជាង 2 MB នឹងត្រូវបង្រួមដោយស្វ័យប្រវត្តិ។",
+  "Same 4:3 crop as the homepage ingredient photo. Recommended size: 1200 × 900 px. JPG, PNG, or WebP. Larger photos are compressed automatically.": "ចំណុចកាត់ 4:3 ដូចរូបគ្រឿងផ្សំទំព័រដើម។ ទំហំណែនាំ៖ 1200 × 900 px។ JPG, PNG ឬ WebP។ រូបធំជាង 2 MB នឹងត្រូវបង្រួមដោយស្វ័យប្រវត្តិ។",
+  "Shown full size on the homepage, same shape as this preview. Recommended size: 1600 × 900 px. JPG, PNG, or WebP. Larger photos are compressed automatically.": "បង្ហាញពេញលើទំព័រដើម តាមរូបរាងដូចការមើលជាមុននេះ។ ទំហំណែនាំ៖ 1600 × 900 px។ JPG, PNG ឬ WebP។ រូបធំជាង 2 MB នឹងត្រូវបង្រួមដោយស្វ័យប្រវត្តិ។",
+  "Each photo is shown full size on the homepage, in the order below. Add up to 12. Recommended size: 1600 × 900 px. JPG, PNG, or WebP. Larger photos are compressed automatically.": "រូបនីមួយៗបង្ហាញពេញលើទំព័រដើម តាមលំដាប់ខាងក្រោម។ បន្ថែមបានដល់ ១២។ ទំហំណែនាំ៖ 1600 × 900 px។ JPG, PNG ឬ WebP។ រូបធំជាង 2 MB នឹងត្រូវបង្រួមដោយស្វ័យប្រវត្តិ។",
+  "You can add up to 12 photos.": "អ្នកអាចបន្ថែមរូបបានដល់ ១២។",
+  "Invalid promotion images.": "រូបប្រូម៉ូសិនមិនត្រឹមត្រូវ។",
   "Recommended size: 400 × 400 px (square). JPG, PNG, or WebP. Larger photos are compressed automatically.": "ទំហំណែនាំ៖ 400 × 400 px (ការ៉េ)។ JPG, PNG ឬ WebP។ រូបធំជាង 2 MB នឹងត្រូវបង្រួមដោយស្វ័យប្រវត្តិ។",
   "Choose a JPG, PNG or WebP image.": "ជ្រើសរើសរូប JPG, PNG ឬ WebP។",
   "Choose an image under 25 MB.": "ជ្រើសរើសរូបក្រោម 25 MB។",

@@ -111,7 +111,7 @@ export async function prepareImageUpload(file) {
   }
 }
 
-export function ImageField({ value = "", onChange, folder = "products", hint }) {
+export function ImageField({ value = "", onChange, onUpload, onBlur, folder = "products", hint }) {
   const { tx } = useI18n()
   const [error, setError] = useState("")
   const [uploading, setUploading] = useState(false)
@@ -123,7 +123,8 @@ export function ImageField({ value = "", onChange, folder = "products", hint }) 
       setError("")
       const data = await prepareImageUpload(file)
       const result = await cmsRequest("upload", { image: data, folder }, 60000)
-      onChange(result.url)
+      if (onUpload) onUpload(result.url)
+      else onChange(result.url)
     } catch (failure) { setError(failure.message || "The image could not be uploaded.") }
     finally { setUploading(false); event.target.value = "" }
   }
@@ -131,7 +132,7 @@ export function ImageField({ value = "", onChange, folder = "products", hint }) 
     <label>{tx("Photo")}<input type="file" disabled={uploading} accept="image/jpeg,image/png,image/webp" onChange={upload} className="w-full min-w-0 max-w-full text-xs file:mr-2 file:rounded file:border-0 file:bg-[#f1f2f5] file:px-3 file:py-2" /></label>
     <p className="text-[12px] leading-5 text-[#777a83]">{tx(hint || imageHints[folder] || imageHints.products)}</p>
     {uploading && <p role="status" className="text-sm">{tx("Uploading...")}</p>}
-    <label>{tx("Image URL")}<input className="min-w-0 max-w-full" value={value.startsWith("data:") ? "" : value} placeholder={value.startsWith("data:") ? "Uploaded photo selected" : "https://..."} onChange={(event) => onChange(event.target.value)} /></label>
+    <label>{tx("Image URL")}<input className="min-w-0 max-w-full" value={value.startsWith("data:") ? "" : value} placeholder={value.startsWith("data:") ? "Uploaded photo selected" : "https://..."} onChange={(event) => onChange(event.target.value)} onBlur={(event) => onBlur?.(event.target.value)} /></label>
     {value && <button type="button" className="justify-self-start text-[13px] text-[#c5295b]" onClick={() => onChange("")}>{tx("Remove photo")}</button>}
     {error && <ErrorCard message={tx(error)} onClose={() => setError("")} />}
   </div>
@@ -240,15 +241,57 @@ export function AdminFormDialog({ title, busy, onClose, children }) {
 
 const sections = [
   { title: "Brand & appearance", fields: [["brand", "Brand name"], ["tagline", "Footer tagline"]] },
-  { title: "Homepage hero", fields: [["heroEyebrow", "Label"], ["heroTitle", "Headline"], ["heroAccent", "Highlighted headline"], ["heroDescription", "Description", "textarea"], ["heroButton", "Button text"]], image: "heroImage", fallback: "/images/hero.jpg", imageHint: "Recommended size: 1600 × 900 px (wide banner). JPG, PNG, or WebP. Larger photos are compressed automatically." },
+  { title: "Homepage hero", fields: [["heroEyebrow", "Label"], ["heroTitle", "Headline"], ["heroAccent", "Highlighted headline"], ["heroDescription", "Description", "textarea"], ["heroButton", "Button text"]], image: "heroImage", fallback: "/images/hero.jpg", previewClass: "aspect-video w-full rounded-[28px] object-cover object-[68%_18%]", imageHint: "Same 16:9 crop as the homepage hero. Recommended size: 1600 × 900 px. JPG, PNG, or WebP. Larger photos are compressed automatically." },
   { title: "Product catalog", fields: [["catalogTitle", "Heading"], ["catalogDescription", "Description", "textarea"]] },
-  { title: "Brand story", fields: [["storyTitle", "Heading"], ["storyDescription", "Description", "textarea"]], image: "storyImage", fallback: "/images/banner.jpg", imageHint: "Recommended size: 1200 × 800 px. JPG, PNG, or WebP. Larger photos are compressed automatically." },
-  { title: "Ingredient story", fields: [["ingredientEyebrow", "Label"], ["ingredientTitle", "Heading"], ["ingredientDescription", "Description", "textarea"], ["ingredientButton", "Button text"], ["ingredientPoint1Title", "Point 1 heading"], ["ingredientPoint1Text", "Point 1 text"], ["ingredientPoint2Title", "Point 2 heading"], ["ingredientPoint2Text", "Point 2 text"], ["ingredientPoint3Title", "Point 3 heading"], ["ingredientPoint3Text", "Point 3 text"]], image: "ingredientImage", fallback: "/images/ingredient.jpg", imageHint: "Recommended size: 1200 × 1400 px. JPG, PNG, or WebP. Larger photos are compressed automatically." },
-  { title: "Promotion", fields: [["promotionTitle", "Heading"], ["promotionDescription", "Description", "textarea"]], image: "promotionImage", fallback: "/images/cluster.jpg", imageHint: "Recommended size: 1600 × 800 px (wide banner). JPG, PNG, or WebP. Larger photos are compressed automatically." },
+  { title: "Brand story", fields: [["storyTitle", "Heading"], ["storyDescription", "Description", "textarea"]], image: "storyImage", fallback: "/images/banner.jpg", previewClass: "aspect-[3/4] w-full rounded-[32px] object-cover", imageHint: "Same 3:4 crop as the homepage story photos. Recommended size: 900 × 1200 px. JPG, PNG, or WebP. Larger photos are compressed automatically." },
+  { title: "Ingredient story", fields: [["ingredientEyebrow", "Label"], ["ingredientTitle", "Heading"], ["ingredientDescription", "Description", "textarea"], ["ingredientButton", "Button text"], ["ingredientPoint1Title", "Point 1 heading"], ["ingredientPoint1Text", "Point 1 text"], ["ingredientPoint2Title", "Point 2 heading"], ["ingredientPoint2Text", "Point 2 text"], ["ingredientPoint3Title", "Point 3 heading"], ["ingredientPoint3Text", "Point 3 text"]], image: "ingredientImage", fallback: "/images/ingredient.jpg", previewClass: "aspect-[4/3] w-full rounded-[32px] object-cover", imageHint: "Same 4:3 crop as the homepage ingredient photo. Recommended size: 1200 × 900 px. JPG, PNG, or WebP. Larger photos are compressed automatically." },
+  { title: "Promotion", fields: [["promotionTitle", "Heading"], ["promotionDescription", "Description", "textarea"]], gallery: true, imageHint: "Each photo is shown full size on the homepage, in the order below. Add up to 12. Recommended size: 1600 × 900 px. JPG, PNG, or WebP. Larger photos are compressed automatically." },
   { title: "Contact section", fields: [["contactTitle", "Heading"], ["contactDescription", "Description", "textarea"]] },
 ]
 
 const textKeys = sections.flatMap((item) => item.fields.map(([key]) => key))
+
+function PromotionImages({ images, onChange, hint, draftRef }) {
+  const { tx } = useI18n()
+  const [draft, setDraft] = useState("")
+  if (draftRef) draftRef.current = draft
+  function add(image) {
+    const next = typeof image === "string" ? image.trim() : ""
+    if (!next || images.includes(next) || images.length >= 12) return
+    onChange([...images, next])
+    setDraft("")
+  }
+  function move(index, direction) {
+    const destination = index + direction
+    if (destination < 0 || destination >= images.length) return
+    const next = [...images]
+    ;[next[index], next[destination]] = [next[destination], next[index]]
+    onChange(next)
+  }
+  function commitDraft(image) {
+    try {
+      if (new URL(image).protocol === "https:") add(image)
+    } catch { /* keep the address until it is a full HTTPS URL */ }
+  }
+  return <div className="grid gap-4">
+    {images.map((image, index) => <div key={`${index}-${image.slice(0, 80)}`} className="overflow-hidden rounded-[28px] border border-[#e5e7eb] bg-white">
+      <img src={image} alt="" className="block h-auto w-full" />
+      <div className="flex items-center justify-between gap-2 px-3 py-2">
+        <span className="text-[13px] font-medium">{tx("Photo")} {index + 1}</span>
+        <div className="flex items-center gap-1">
+          <button type="button" disabled={index === 0} title={tx("Move earlier")} aria-label={tx("Move earlier")} className="grid size-8 place-items-center rounded hover:bg-[#f1f2f5] disabled:opacity-30" onClick={() => move(index, -1)}><IconArrow className="size-4 -rotate-90" /></button>
+          <button type="button" disabled={index === images.length - 1} title={tx("Move later")} aria-label={tx("Move later")} className="grid size-8 place-items-center rounded hover:bg-[#f1f2f5] disabled:opacity-30" onClick={() => move(index, 1)}><IconArrow className="size-4 rotate-90" /></button>
+          <button type="button" className="px-2 py-1 text-[13px] text-[#c5295b]" onClick={() => onChange(images.filter((_, item) => item !== index))}>{tx("Remove")}</button>
+        </div>
+      </div>
+    </div>)}
+    {images.length < 12 ? <>
+      <h3 className="text-[14px] font-semibold">{tx("Add image")}</h3>
+      <ImageField folder="website" hint={hint} value={draft} onChange={setDraft} onBlur={commitDraft} onUpload={add} />
+      {draft.startsWith("https://") && <button type="button" className="justify-self-start text-[13px] font-semibold text-[#c5295b]" onClick={() => commitDraft(draft)}>{tx("Add image")}</button>}
+    </> : <p className="text-[13px] text-[#777a83]">{tx("You can add up to 12 photos.")}</p>}
+  </div>
+}
 
 function khmerValue(values, key) {
   if (values.km && Object.prototype.hasOwnProperty.call(values.km, key)) return values.km[key]
@@ -263,21 +306,34 @@ export function WebsiteEditor({ initial, onSave, canEditWebsite = true, contactF
     for (const key of ["ingredientEyebrow", "ingredientTitle", "ingredientDescription", "ingredientButton", "ingredientPoint1Title", "ingredientPoint1Text", "ingredientPoint2Title", "ingredientPoint2Text", "ingredientPoint3Title", "ingredientPoint3Text"]) {
       if (typeof seeded[key] !== "string") seeded[key] = siteDefaults[key]
     }
+    if (!Array.isArray(seeded.promotionImages)) seeded.promotionImages = seeded.promotionImage ? [seeded.promotionImage] : []
+    else seeded.promotionImages = seeded.promotionImages.filter((item) => typeof item === "string" && item)
     return seeded
   })
   const [section, setSection] = useState(canEditWebsite ? 0 : sections.length)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
+  const promotionDraft = useRef("")
   const menu = [...(canEditWebsite ? sections.map((item, index) => ({ ...item, index })) : []), ...(contactForm ? [{ title: "Contact & social links", index: sections.length }] : [])]
   const current = sections[section]
   function update(key, value) { setValues({ ...values, [key]: value }) }
+  function setPromotionImages(promotionImages) {
+    setValues((current) => ({ ...current, promotionImages, promotionImage: promotionImages[0] || "" }))
+  }
   function updateKhmer(key, value) { setValues({ ...values, km: { ...values.km, [key]: value } }) }
   async function save(event) {
     event.preventDefault()
     setBusy(true)
     setError("")
     const km = Object.fromEntries(textKeys.map((key) => [key, khmerValue(values, key)]))
-    try { await onSave({ ...values, km }) } catch (failure) { setError(failure.message) }
+    const promotionImages = Array.isArray(values.promotionImages) ? [...values.promotionImages] : []
+    const pending = promotionDraft.current.trim()
+    try {
+      if (pending && new URL(pending).protocol === "https:" && !promotionImages.includes(pending) && promotionImages.length < 12) promotionImages.push(pending)
+    } catch { /* an unfinished address stays out of the saved list */ }
+    const next = { ...values, km, promotionImages, promotionImage: promotionImages[0] || "" }
+    setValues(next)
+    try { await onSave(next) } catch (failure) { setError(failure.message) }
     finally { setBusy(false) }
   }
   function englishField(key, label, type) {
@@ -285,7 +341,9 @@ export function WebsiteEditor({ initial, onSave, canEditWebsite = true, contactF
   }
   return <div className="grid gap-8 min-[761px]:grid-cols-[190px_minmax(0,1fr)]"><div role="tablist" aria-label={tx("Website sections")} className="flex gap-2 overflow-auto min-[761px]:flex-col">{menu.map((item) => <button key={item.title} role="tab" aria-selected={item.index === section} className={`shrink-0 rounded-md p-3 text-left text-[13px] ${item.index === section ? "bg-[#fff0f5] font-semibold text-[#b52958]" : ""}`} onClick={() => setSection(item.index)}>{tx(item.title)}</button>)}</div>
     {section === sections.length ? contactForm : <form onSubmit={save} className="max-w-[920px]"><h2 className="mb-6 text-lg font-semibold">{tx(current.title)}</h2><fieldset disabled={busy} className={fields}>
-      {current.image && <><PhotoPreview src={values[current.image] || current.fallback} alt={current.title} className="block w-full"><img className="aspect-video w-full rounded-md object-cover" src={values[current.image] || current.fallback} alt={current.title} /></PhotoPreview><ImageField folder="website" hint={current.imageHint} value={values[current.image]} onChange={(image) => update(current.image, image)} /></>}
+      {current.gallery && <PromotionImages images={values.promotionImages} hint={current.imageHint} draftRef={promotionDraft} onChange={setPromotionImages} />}
+      {current.image && <><PhotoPreview src={values[current.image] || current.fallback} alt={current.title} className="block w-full"><img className={current.previewClass} src={values[current.image] || current.fallback} alt={current.title} /></PhotoPreview><ImageField folder="website" hint={current.imageHint} value={values[current.image]} onChange={(image) => update(current.image, image)} /></>}
+      {current.image === "storyImage" && <><h3 className="text-[14px] font-semibold">{tx("Second image")}</h3><PhotoPreview src={values.storySecondImage || "/images/cluster.jpg"} alt={tx("Second image")} className="block w-full"><img className={current.previewClass} src={values.storySecondImage || "/images/cluster.jpg"} alt={tx("Second image")} /></PhotoPreview><ImageField folder="website" hint={current.imageHint} value={values.storySecondImage || ""} onChange={(image) => update("storySecondImage", image)} /></>}
       {current.fields.map(([key, label, type]) => <div key={key} className="grid gap-3 min-[601px]:grid-cols-2">{englishField(key, label, type)}<label>{tx(label)} ({tx("Khmer")}){type === "textarea" ? <textarea lang="km" rows={4} maxLength={2000} value={khmerValue(values, key)} onChange={(event) => updateKhmer(key, event.target.value)} /> : <input lang="km" maxLength={2000} value={khmerValue(values, key)} onChange={(event) => updateKhmer(key, event.target.value)} />}</label></div>)}
       {section === 0 && <><label>{tx("Accent color")}<input type="color" className="h-10 w-16" value={values.accentColor} onChange={(event) => update("accentColor", event.target.value)} /></label><label>{tx("Body font")}<select value={values.bodyFont} onChange={(event) => update("bodyFont", event.target.value)}>{["DM Sans", "Manrope", "system-ui"].map((font) => <option key={font}>{font}</option>)}</select></label><div className="flex flex-wrap gap-4 [&_label]:flex [&_label]:items-center">{[["showPromotion", "Show promotion"], ["showReviews", "Show customer reviews"]].map(([key, label]) => <label key={key}><input type="checkbox" checked={values[key]} onChange={(event) => update(key, event.target.checked)} />{tx(label)}</label>)}</div></>}
     </fieldset>{error && <ErrorCard message={tx(error)} onClose={() => setError("")} />}<button disabled={busy} className={`${primary} mt-5`}>{tx(busy ? "Saving..." : "Save website")}</button></form>}

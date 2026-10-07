@@ -52,7 +52,7 @@ export let settings = {
   heroEyebrow: "", heroTitle: "", heroAccent: "", heroDescription: "",
   heroButton: "Explore Products", heroImage: "",
   catalogTitle: "Products", catalogDescription: "",
-  storyTitle: "", storyDescription: "", storyImage: "",
+  storyTitle: "", storyDescription: "", storyImage: "", storySecondImage: "",
   ingredientEyebrow: "OUR INGREDIENT STORY",
   ingredientTitle: "Beauty You Can Trust",
   ingredientDescription: "We carefully select high-quality ingredients to create safe, effective, and gentle products for your skin.",
@@ -64,9 +64,15 @@ export let settings = {
   ingredientPoint3Title: "Real Results",
   ingredientPoint3Text: "Loved by our customers.",
   ingredientImage: "",
-  promotionTitle: "", promotionDescription: "", promotionImage: "",
+  promotionTitle: "", promotionDescription: "", promotionImage: "", promotionImages: [],
   contactTitle: "Contact", contactDescription: "",
   accentColor: "#e83e73", bodyFont: "DM Sans", showPromotion: false, showReviews: false,
+}
+
+export function promotionBanners() {
+  const list = Array.isArray(settings.promotionImages) ? settings.promotionImages.filter((item) => typeof item === "string" && item) : []
+  if (list.length) return list
+  return settings.promotionImage ? [settings.promotionImage] : []
 }
 
 export function defaultCmsState() {

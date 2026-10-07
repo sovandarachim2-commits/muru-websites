@@ -127,11 +127,15 @@ function cms_content_load(PDO $pdo): array
         foreach ($textKeys as $key) if (array_key_exists($key, $km)) $cleanKm[$key] = $km[$key];
         $cleanSettings['km'] = $cleanKm;
     }
-    foreach (['heroImage', 'storyImage', 'ingredientImage', 'promotionImage', 'logo', 'favicon', 'accentColor', 'bodyFont'] as $key) {
+    foreach (['heroImage', 'storyImage', 'storySecondImage', 'ingredientImage', 'promotionImage', 'logo', 'favicon', 'accentColor', 'bodyFont'] as $key) {
         if (array_key_exists($key, $stored)) $cleanSettings[$key] = $stored[$key];
     }
     foreach (['showPromotion', 'showReviews'] as $key) {
         if (array_key_exists($key, $stored)) $cleanSettings[$key] = $stored[$key] === '1';
+    }
+    if (array_key_exists('promotionImages', $stored)) {
+        $decoded = json_decode($stored['promotionImages'], true);
+        if (is_array($decoded)) $cleanSettings['promotionImages'] = array_values(array_filter($decoded, 'is_string'));
     }
 
     $cleanSocial = [];
@@ -240,6 +244,11 @@ function cms_content_save(PDO $pdo, array $data): void
             $settings = is_array($data['state']['settings'] ?? null) ? $data['state']['settings'] : [];
             foreach ($settings as $key => $value) {
                 if ($key === 'km' || !is_string($key)) continue;
+                if ($key === 'promotionImages') {
+                    $images = is_array($value) ? array_values(array_filter($value, 'is_string')) : [];
+                    $settingInsert->execute([$key, '', json_encode($images, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]);
+                    continue;
+                }
                 if (is_bool($value)) $value = $value ? '1' : '0';
                 if (!is_scalar($value)) continue;
                 $settingInsert->execute([$key, '', (string) $value]);

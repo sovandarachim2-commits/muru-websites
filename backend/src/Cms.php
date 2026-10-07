@@ -31,10 +31,10 @@ function cms_image(mixed $value): string
     throw new InvalidArgumentException('Use a JPG, PNG or WebP image under 2 MB, or an HTTPS image URL.');
 }
 
-function cms_images(mixed $value): array
+function cms_images(mixed $value, string $message = 'Invalid product images.'): array
 {
     if ($value === null || $value === '') return [];
-    if (!is_array($value) || !array_is_list($value) || count($value) > 12) throw new InvalidArgumentException('Invalid product images.');
+    if (!is_array($value) || !array_is_list($value) || count($value) > 12) throw new InvalidArgumentException($message);
     $images = [];
     foreach ($value as $image) {
         $clean = cms_image($image);
@@ -141,7 +141,13 @@ function cms_validate(array $body): array
     $km = [];
     foreach ($textKeys as $key) $km[$key] = cms_text($kmSource, $key, 2000);
     $settings['km'] = $km;
-    foreach (['heroImage', 'storyImage', 'ingredientImage', 'promotionImage', 'logo', 'favicon'] as $key) $settings[$key] = cms_image($body['settings'][$key] ?? '');
+    foreach (['heroImage', 'storyImage', 'storySecondImage', 'ingredientImage', 'promotionImage', 'logo', 'favicon'] as $key) $settings[$key] = cms_image($body['settings'][$key] ?? '');
+    if (is_array($body['settings'] ?? null) && array_key_exists('promotionImages', $body['settings'])) {
+        $settings['promotionImages'] = cms_images($body['settings']['promotionImages'], 'Invalid promotion images.');
+        $settings['promotionImage'] = $settings['promotionImages'][0] ?? '';
+    } else {
+        $settings['promotionImages'] = $settings['promotionImage'] !== '' ? [$settings['promotionImage']] : [];
+    }
     $settings['accentColor'] = cms_text($body['settings'] ?? [], 'accentColor', 7);
     if (!preg_match('/^#[a-fA-F0-9]{6}$/D', $settings['accentColor'])) throw new InvalidArgumentException('Invalid accent color.');
     $settings['bodyFont'] = in_array($body['settings']['bodyFont'] ?? '', ['DM Sans', 'Manrope', 'system-ui'], true) ? $body['settings']['bodyFont'] : 'DM Sans';
